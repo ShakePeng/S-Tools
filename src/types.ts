@@ -12,7 +12,6 @@ export interface AppSettings {
   screenshotEnabled: boolean;
   targetLang: string;
   launchAtLogin: boolean;
-  historyLimit: number;
   theme: ThemeMode;
   hasCompletedOnboarding: boolean;
 }
@@ -74,23 +73,11 @@ export interface PendingTranslation {
   notice: string | null;
 }
 
-export interface HistoryItem {
-  id: number;
-  kind: "translation" | "screenshot";
-  createdAt: number;
-  title: string;
-  subtitle: string;
-  path: string | null;
-  providerId: string | null;
-}
-
 export interface BootstrapData {
   version: string;
   settings: AppSettings;
   providers: ProviderView[];
   permissions: PermissionStatus;
-  translationHistory: HistoryItem[];
-  screenshotHistory: HistoryItem[];
 }
 
 export interface CaptureSession {
@@ -126,7 +113,7 @@ export interface CompleteCaptureRequest {
 }
 
 export interface CompleteCaptureResult {
-  path: string;
+  path: string | null;
   message: string;
 }
 

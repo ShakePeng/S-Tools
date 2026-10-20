@@ -1,10 +1,10 @@
 mod capture;
 mod config;
+mod maintenance;
 mod models;
 mod platform;
 mod secrets;
 mod selection;
-mod storage;
 mod translate;
 mod updater;
 
@@ -24,7 +24,6 @@ use models::{
     CompleteCaptureResult, PendingTranslation, PermissionStatus, ProviderInput, ProviderResult,
     ProviderView, TranslationRequest, UpdateDownloadEvent, UpdateInfo, UpdateInstallResult,
 };
-use storage::Storage;
 use tauri::{
     image::Image,
     ipc::Channel,
@@ -39,7 +38,6 @@ const TRAY_ID: &str = "s-tools";
 
 pub struct AppState {
     config: RwLock<AppConfig>,
-    storage: Storage,
     sessions: Mutex<HashMap<String, CaptureSession>>,
     capture_ready: Arc<Mutex<HashSet<String>>>,
     pending: Mutex<PendingTranslation>,
@@ -49,7 +47,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    fn new(config: AppConfig, storage: Storage) -> Result<Self, String> {
+    fn new(config: AppConfig) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .user_agent("S-Tools/1.0.0")
             .connect_timeout(Duration::from_secs(15))
@@ -58,7 +56,6 @@ impl AppState {
             .map_err(|error| format!("初始化网络客户端失败：{error}"))?;
         Ok(Self {
             config: RwLock::new(config),
-            storage,
             sessions: Mutex::new(HashMap::new()),
             capture_ready: Arc::new(Mutex::new(HashSet::new())),
             pending: Mutex::new(PendingTranslation::default()),
@@ -76,14 +73,11 @@ fn bootstrap(app: AppHandle, state: State<'_, AppState>) -> Result<BootstrapData
         .read()
         .map_err(|_| "配置锁已损坏".to_string())?
         .clone();
-    let history = state.storage.all_history()?;
     Ok(BootstrapData {
         version: app.package_info().version.to_string(),
         settings: config.settings,
         providers: translate::provider_views(&config.providers),
         permissions: permission_status(),
-        translation_history: history.translations,
-        screenshot_history: history.screenshots,
     })
 }
 
@@ -93,7 +87,6 @@ fn save_settings(
     state: State<'_, AppState>,
     mut input: AppSettings,
 ) -> Result<AppSettings, String> {
-    input.history_limit = input.history_limit.clamp(20, 1000);
     input.schema_version = 1;
     if input.hotkeys.translate.trim().is_empty() || input.hotkeys.screenshot.trim().is_empty() {
         return Err("快捷键不能为空".into());
@@ -229,22 +222,7 @@ async fn translate(
     if let Ok(mut tokens) = state.cancellations.lock() {
         tokens.remove(&cancellation_key);
     }
-    let result = result?;
-    let limit = state
-        .config
-        .read()
-        .map(|config| config.settings.history_limit)
-        .unwrap_or(200);
-    state.storage.add_translation(
-        &request.text,
-        &result.translated_text,
-        &result.detected_lang,
-        &request.target_lang,
-        &request.provider_id,
-        limit,
-    )?;
-    let _ = app.emit("history://changed", ());
-    Ok(result)
+    result
 }
 
 #[tauri::command]
@@ -393,23 +371,12 @@ fn complete_capture(
     state: State<'_, AppState>,
     request: CompleteCaptureRequest,
 ) -> Result<CompleteCaptureResult, String> {
-    let limit = state
-        .config
-        .read()
-        .map(|config| config.settings.history_limit)
-        .unwrap_or(200);
-    let result = capture::decode_and_store(
+    capture::complete_capture(
         &app,
-        &state.storage,
         &state.sessions,
         &state.capture_ready,
         &request,
-        limit,
-    );
-    if result.is_ok() {
-        let _ = app.emit("history://changed", ());
-    }
-    result
+    )
 }
 
 #[tauri::command]
@@ -420,32 +387,6 @@ fn cancel_capture(
 ) -> Result<(), String> {
     capture::cleanup_session(&app, &state.sessions, &state.capture_ready, &session_id);
     Ok(())
-}
-
-#[tauri::command]
-fn get_all_history(state: State<'_, AppState>) -> Result<models::AllHistory, String> {
-    state.storage.all_history()
-}
-
-#[tauri::command]
-fn delete_history(state: State<'_, AppState>, kind: String, id: i64) -> Result<(), String> {
-    if let Some(path) = state.storage.delete(&kind, id)? {
-        let _ = std::fs::remove_file(path);
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn copy_history_image(app: AppHandle, path: String) -> Result<(), String> {
-    let canonical =
-        std::fs::canonicalize(&path).map_err(|error| format!("读取截图文件失败：{error}"))?;
-    let captures = config::data_dir(&app)?.join("captures");
-    let captures =
-        std::fs::canonicalize(&captures).map_err(|error| format!("定位截图目录失败：{error}"))?;
-    if !canonical.starts_with(&captures) {
-        return Err("只能复制 S-Tools 截图目录中的图片".into());
-    }
-    capture::copy_image_path(&canonical)
 }
 
 #[tauri::command]
@@ -478,7 +419,7 @@ fn open_permission_settings(kind: String) -> Result<(), String> {
 
 #[tauri::command]
 fn open_main_window(app: AppHandle, section: Option<String>) -> Result<(), String> {
-    show_main_window(&app, section.as_deref().unwrap_or("home"))
+    show_main_window(&app, section.as_deref().unwrap_or("overview"))
 }
 
 #[tauri::command]
@@ -771,19 +712,10 @@ fn validate_hotkey(app: AppHandle, value: String) -> Result<(), String> {
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let translate = MenuItemBuilder::with_id("translate", "划词翻译").build(app)?;
     let screenshot = MenuItemBuilder::with_id("screenshot", "区域截图").build(app)?;
-    let history = MenuItemBuilder::with_id("history", "历史记录").build(app)?;
     let settings = MenuItemBuilder::with_id("settings", "设置").build(app)?;
-    let updates = MenuItemBuilder::with_id("updates", "软件更新").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "退出 S-Tools").build(app)?;
     let menu = MenuBuilder::new(app)
-        .items(&[
-            &translate,
-            &screenshot,
-            &history,
-            &settings,
-            &updates,
-            &quit,
-        ])
+        .items(&[&translate, &screenshot, &settings, &quit])
         .build()?;
     #[cfg(target_os = "macos")]
     let icon_bytes = include_bytes!("../icons/tray-template.png");
@@ -803,7 +735,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(error) = open_translation_workflow(handle.clone()).await {
-                        let _ = show_main_window(&handle, "home");
+                        let _ = show_main_window(&handle, "overview");
                         let _ = handle.emit("app://toast", error);
                     }
                 });
@@ -812,7 +744,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(error) = ensure_screenshot_enabled(&handle) {
-                        let _ = show_main_window(&handle, "home");
+                        let _ = show_main_window(&handle, "overview");
                         let _ = handle.emit("app://toast", error);
                         return;
                     }
@@ -828,14 +760,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                     }
                 });
             }
-            "history" => {
-                let _ = show_main_window(app, "history");
-            }
             "settings" => {
                 let _ = show_main_window(app, "settings");
-            }
-            "updates" => {
-                let _ = show_main_window(app, "updates");
             }
             "quit" => {
                 app.state::<AppState>()
@@ -852,7 +778,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 ..
             } = event
             {
-                let _ = show_main_window(tray.app_handle(), "home");
+                let _ = show_main_window(tray.app_handle(), "overview");
             }
         });
     #[cfg(target_os = "macos")]
@@ -877,7 +803,7 @@ fn start_update_loop(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ = show_main_window(app, "home");
+            let _ = show_main_window(app, "overview");
         }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -887,10 +813,10 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             let data_dir = config::data_dir(&handle)?;
-            let storage = Storage::new(&data_dir).map_err(|error| error.to_string())?;
+            maintenance::remove_legacy_history(&data_dir)?;
             let config = config::load_config(&handle).map_err(|error| error.to_string())?;
             let settings = config.settings.clone();
-            let state = AppState::new(config, storage).map_err(|error| error.to_string())?;
+            let state = AppState::new(config).map_err(|error| error.to_string())?;
             app.manage(state);
 
             #[cfg(target_os = "macos")]
@@ -947,9 +873,6 @@ pub fn run() {
             choose_capture_save_path,
             complete_capture,
             cancel_capture,
-            get_all_history,
-            delete_history,
-            copy_history_image,
             get_permission_status,
             open_permission_settings,
             open_main_window,
@@ -969,15 +892,6 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn settings_limit_is_stable() {
-        let settings = AppSettings {
-            history_limit: 9999,
-            ..AppSettings::default()
-        };
-        assert_eq!(settings.history_limit.clamp(20, 1000), 1000);
-    }
 
     #[test]
     fn feature_switches_default_to_disabled() {

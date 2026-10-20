@@ -27,7 +27,6 @@ pub struct AppSettings {
     pub screenshot_enabled: bool,
     pub target_lang: String,
     pub launch_at_login: bool,
-    pub history_limit: usize,
     pub theme: String,
     pub has_completed_onboarding: bool,
 }
@@ -41,7 +40,6 @@ impl Default for AppSettings {
             screenshot_enabled: false,
             target_lang: "auto".into(),
             launch_at_login: false,
-            history_limit: 200,
             theme: "dark".into(),
             has_completed_onboarding: false,
         }
@@ -199,25 +197,6 @@ pub struct PermissionStatus {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct HistoryItem {
-    pub id: i64,
-    pub kind: String,
-    pub created_at: i64,
-    pub title: String,
-    pub subtitle: String,
-    pub path: Option<String>,
-    pub provider_id: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AllHistory {
-    pub translations: Vec<HistoryItem>,
-    pub screenshots: Vec<HistoryItem>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CaptureSession {
     pub session_id: String,
     pub monitor_id: u32,
@@ -256,7 +235,7 @@ pub struct CompleteCaptureRequest {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompleteCaptureResult {
-    pub path: String,
+    pub path: Option<String>,
     pub message: String,
 }
 
@@ -267,8 +246,6 @@ pub struct BootstrapData {
     pub settings: AppSettings,
     pub providers: Vec<ProviderView>,
     pub permissions: PermissionStatus,
-    pub translation_history: Vec<HistoryItem>,
-    pub screenshot_history: Vec<HistoryItem>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

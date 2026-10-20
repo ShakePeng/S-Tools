@@ -29,7 +29,6 @@ export const mockBootstrap: BootstrapData = {
     screenshotEnabled: false,
     targetLang: "auto",
     launchAtLogin: false,
-    historyLimit: 200,
     theme: "dark",
     hasCompletedOnboarding: true,
   },
@@ -86,8 +85,6 @@ export const mockBootstrap: BootstrapData = {
     },
   ],
   permissions: { accessibility: false, screenRecording: false },
-  translationHistory: [],
-  screenshotHistory: [],
 };
 
 export async function bootstrap(): Promise<BootstrapData> {

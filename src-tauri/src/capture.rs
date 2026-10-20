@@ -7,7 +7,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine};
-use image::{GenericImageView, ImageEncoder};
+use image::ImageEncoder;
 use tauri::{
     window::Color, AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
     WebviewWindowBuilder,
@@ -18,7 +18,6 @@ use xcap::Monitor;
 use crate::{
     config::data_dir,
     models::{CaptureSession, CompleteCaptureRequest, CompleteCaptureResult, Rect},
-    storage::Storage,
 };
 
 pub const CAPTURE_WINDOW_LABEL: &str = "capture-overlay";
@@ -386,13 +385,11 @@ fn restore_foreground_app(pid: Option<u32>) {
     });
 }
 
-pub fn decode_and_store(
+pub fn complete_capture(
     app: &AppHandle,
-    storage: &Storage,
     sessions: &Mutex<HashMap<String, CaptureSession>>,
     ready: &Arc<Mutex<HashSet<String>>>,
     request: &CompleteCaptureRequest,
-    history_limit: usize,
 ) -> Result<CompleteCaptureResult, String> {
     if !sessions
         .lock()
@@ -418,45 +415,35 @@ pub fn decode_and_store(
     }
     let image =
         image::load_from_memory(&bytes).map_err(|error| format!("读取截图图像失败：{error}"))?;
-    let (width, height) = image.dimensions();
-    let directory = data_dir(app)?.join("captures").join("history");
-    std::fs::create_dir_all(&directory).map_err(|error| format!("创建截图目录失败：{error}"))?;
-    let extension = "png";
     let file_name = format!(
-        "S-Tools-{}.{}",
-        chrono::Local::now().format("%Y%m%d-%H%M%S-%3f"),
-        extension
+        "S-Tools-{}.png",
+        chrono::Local::now().format("%Y%m%d-%H%M%S-%3f")
     );
-    let history_path = directory.join(&file_name);
-    image
-        .save_with_format(&history_path, image::ImageFormat::Png)
-        .map_err(|error| format!("保存截图失败：{error}"))?;
 
-    let mut message = "截图已保存到历史".to_string();
+    let mut output_path = None;
+    let message;
     if request.action == "copy" {
         copy_image(&image)?;
         message = "截图已复制到剪贴板".into();
-    } else if request.action == "save" {
+    } else {
         let output = if let Some(path) = request.save_path.as_deref() {
             let path = PathBuf::from(path);
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|error| format!("创建保存目录失败：{error}"))?;
             }
-            std::fs::copy(&history_path, &path)
-                .map_err(|error| format!("保存截图失败：{error}"))?;
+            save_image(&image, &path)?;
             path
         } else {
-            save_to_pictures(app, &history_path, &file_name)?
+            save_to_pictures(app, &image, &file_name)?
         };
         message = format!("截图已保存到 {}", output.display());
+        output_path = Some(output.to_string_lossy().to_string());
     }
-
-    storage.add_screenshot(&history_path, width, height, history_limit)?;
 
     cleanup_session(app, sessions, ready, &request.session_id);
     Ok(CompleteCaptureResult {
-        path: history_path.to_string_lossy().to_string(),
+        path: output_path,
         message,
     })
 }
@@ -475,13 +462,17 @@ pub fn copy_image(image: &image::DynamicImage) -> Result<(), String> {
         .map_err(|error| format!("复制截图到剪贴板失败：{error}"))
 }
 
-pub fn copy_image_path(path: &Path) -> Result<(), String> {
-    let image = image::open(path)
-        .map_err(|error| format!("读取截图失败（{}）：{error}", path.display()))?;
-    copy_image(&image)
+fn save_image(image: &image::DynamicImage, path: &Path) -> Result<(), String> {
+    image
+        .save_with_format(path, image::ImageFormat::Png)
+        .map_err(|error| format!("保存截图失败：{error}"))
 }
 
-fn save_to_pictures(app: &AppHandle, source: &Path, file_name: &str) -> Result<PathBuf, String> {
+fn save_to_pictures(
+    app: &AppHandle,
+    image: &image::DynamicImage,
+    file_name: &str,
+) -> Result<PathBuf, String> {
     let base = app
         .path()
         .picture_dir()
@@ -489,7 +480,7 @@ fn save_to_pictures(app: &AppHandle, source: &Path, file_name: &str) -> Result<P
     let directory = base.join("S-Tools");
     std::fs::create_dir_all(&directory).map_err(|error| format!("创建图片目录失败：{error}"))?;
     let target = unique_path(directory.join(file_name));
-    std::fs::copy(source, &target).map_err(|error| format!("保存截图到图片目录失败：{error}"))?;
+    save_image(image, &target)?;
     Ok(target)
 }
 

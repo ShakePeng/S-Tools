@@ -5,13 +5,12 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import AppIcon from "../components/AppIcon.vue";
 import HotkeyRecorder from "../components/HotkeyRecorder.vue";
 import UiIcon from "../components/UiIcon.vue";
-import { formatDate, truncate } from "../lib/format";
+import { truncate } from "../lib/format";
 import { formatHotkey } from "../lib/hotkeys";
-import { assetUrl, bootstrap, call, isTauri } from "../lib/ipc";
+import { bootstrap, call, isTauri } from "../lib/ipc";
 import type {
   AppSettings,
   BootstrapData,
-  HistoryItem,
   ProviderInput,
   ProviderResult,
   ProviderView,
@@ -20,30 +19,21 @@ import type {
   UpdateInstallResult,
   UpdateProgressEvent,
 } from "../types";
-
-type Section = "home" | "history" | "translation" | "screenshot" | "settings" | "updates";
-
-const sections: Array<{ id: Section; label: string; icon: string }> = [
-  { id: "home", label: "工作台", icon: "home" },
-  { id: "history", label: "历史记录", icon: "history" },
-  { id: "translation", label: "翻译", icon: "translate" },
-  { id: "screenshot", label: "截图", icon: "screenshot" },
-  { id: "settings", label: "通用设置", icon: "settings" },
-  { id: "updates", label: "软件更新", icon: "update" },
-];
+import {
+  isSectionVisible,
+  normalizeSection,
+  resolveRequestedSection,
+  shellSections as sections,
+  visibleSectionItems,
+  type Section,
+} from "./navigation";
 
 const rawRequestedSection = new URLSearchParams(window.location.search).get("section");
-const requestedSection = rawRequestedSection == "providers" ? "translation" : rawRequestedSection;
-const section = ref<Section>(
-  sections.some((item) => item.id === requestedSection)
-    ? (requestedSection as Section)
-    : "home",
-);
+const section = ref<Section>("overview");
 const loading = ref(true);
 const data = ref<BootstrapData | null>(null);
 const error = ref("");
 const toast = ref("");
-const historyTab = ref<"translation" | "screenshot">("translation");
 const editing = ref<ProviderView | null>(null);
 const credentials = reactive<Record<string, string>>({});
 const providerSaving = ref(false);
@@ -62,7 +52,6 @@ const settingsForm = reactive<SettingsInput>({
   screenshotEnabled: false,
   targetLang: "auto",
   launchAtLogin: false,
-  historyLimit: 200,
   theme: "dark",
   hasCompletedOnboarding: true,
 });
@@ -71,7 +60,6 @@ let toastTimer: number | undefined;
 let unlistenUpdate: (() => void) | undefined;
 let unlistenNavigate: (() => void) | undefined;
 let unlistenToast: (() => void) | undefined;
-let unlistenHistory: (() => void) | undefined;
 
 const enabledProviders = computed(
   () => data.value?.providers.filter((provider) => provider.enabled && provider.configured) || [],
@@ -82,21 +70,7 @@ const insecureBaseUrl = computed(
     ["deepseek", "openai-compatible"].includes(editing.value?.kind || "") &&
     editing.value?.baseUrl.trim().toLowerCase().startsWith("http://"),
 );
-const visibleSections = computed(() =>
-  sections.filter((item) => {
-    if (item.id == "translation") return settingsForm.translationEnabled;
-    if (item.id == "screenshot") return settingsForm.screenshotEnabled;
-    return true;
-  }),
-);
-
-const currentHistory = computed<HistoryItem[]>(() => {
-  if (!data.value) return [];
-  return historyTab.value === "translation"
-    ? data.value.translationHistory
-    : data.value.screenshotHistory;
-});
-const recentScreenshots = computed(() => data.value?.screenshotHistory.slice(0, 6) || []);
+const visibleSections = computed(() => visibleSectionItems(settingsForm));
 
 function notify(message: string) {
   toast.value = message;
@@ -127,12 +101,7 @@ async function load() {
   try {
     data.value = await bootstrap();
     syncSettingsForm(data.value.settings);
-    if (section.value == "translation" && !data.value.settings.translationEnabled) {
-      section.value = "home";
-    }
-    if (section.value == "screenshot" && !data.value.settings.screenshotEnabled) {
-      section.value = "home";
-    }
+    section.value = resolveRequestedSection(rawRequestedSection, data.value.settings);
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason);
   } finally {
@@ -150,7 +119,7 @@ async function toggleFeature(kind: "translation" | "screenshot") {
     const saved = await call<AppSettings>("save_settings", { input: settingsForm });
     if (data.value) data.value.settings = saved;
     syncSettingsForm(saved);
-    if (!saved[field] && section.value == kind) section.value = "home";
+    if (!isSectionVisible(section.value, saved)) section.value = "overview";
     notify(`${kind == "translation" ? "划词翻译" : "截图"}已${saved[field] ? "开启" : "关闭"}`);
   } catch (reason) {
     settingsForm[field] = previous;
@@ -158,15 +127,6 @@ async function toggleFeature(kind: "translation" | "screenshot") {
   } finally {
     featureSaving.value = false;
   }
-}
-
-async function refreshHistory() {
-  if (!data.value || !isTauri()) return;
-  const history = await call<{ translations: HistoryItem[]; screenshots: HistoryItem[] }>(
-    "get_all_history",
-  );
-  data.value.translationHistory = history.translations;
-  data.value.screenshotHistory = history.screenshots;
 }
 
 async function saveSettings() {
@@ -180,14 +140,6 @@ async function saveSettings() {
     notify(reason instanceof Error ? reason.message : String(reason));
   } finally {
     settingsSaving.value = false;
-  }
-}
-
-async function startTranslation() {
-  try {
-    await call("open_translation");
-  } catch (reason) {
-    notify(reason instanceof Error ? reason.message : String(reason));
   }
 }
 
@@ -281,39 +233,6 @@ async function openPermission(kind: "accessibility" | "screenRecording") {
   }
 }
 
-async function copyHistory(item: HistoryItem) {
-  try {
-    if (item.kind === "screenshot" && item.path && isTauri()) {
-      await call("copy_history_image", { path: item.path });
-    } else {
-      await navigator.clipboard.writeText(item.subtitle);
-    }
-    notify("已复制到剪贴板");
-  } catch (reason) {
-    notify(reason instanceof Error ? reason.message : String(reason));
-  }
-}
-
-async function deleteHistory(item: HistoryItem) {
-  try {
-    await call("delete_history", { kind: item.kind, id: item.id });
-    if (data.value) {
-      if (item.kind === "translation") {
-        data.value.translationHistory = data.value.translationHistory.filter(
-          (entry) => entry.id !== item.id,
-        );
-      } else {
-        data.value.screenshotHistory = data.value.screenshotHistory.filter(
-          (entry) => entry.id !== item.id,
-        );
-      }
-    }
-    notify("记录已删除");
-  } catch (reason) {
-    notify(reason instanceof Error ? reason.message : String(reason));
-  }
-}
-
 async function checkUpdate() {
   updateChecking.value = true;
   updateError.value = "";
@@ -375,18 +294,15 @@ onMounted(async () => {
   await load();
   if (isTauri()) {
     unlistenUpdate = await listen("update://available", () => {
-      updateMessage.value = "发现可用更新，可前往软件更新查看";
+      updateMessage.value = "发现可用更新，可前往设置查看";
     });
     unlistenNavigate = await listen<string>("app://navigate", (event) => {
-      if (sections.some((item) => item.id === event.payload)) {
-        section.value = event.payload as Section;
-      }
+      const target = normalizeSection(event.payload);
+      section.value =
+        target && isSectionVisible(target, settingsForm) ? target : "overview";
     });
     unlistenToast = await listen<string>("app://toast", (event) => {
       notify(event.payload);
-    });
-    unlistenHistory = await listen("history://changed", () => {
-      refreshHistory().catch(() => undefined);
     });
   }
 });
@@ -396,7 +312,6 @@ onBeforeUnmount(() => {
   unlistenUpdate?.();
   unlistenNavigate?.();
   unlistenToast?.();
-  unlistenHistory?.();
 });
 </script>
 
@@ -441,18 +356,6 @@ onBeforeUnmount(() => {
           <span class="eyebrow">S-TOOLS · {{ data?.version || "1.0.0" }}</span>
           <h1>{{ sections.find((item) => item.id === section)?.label }}</h1>
         </div>
-        <div class="top-actions">
-          <button v-if="settingsForm.screenshotEnabled" class="secondary-button" @click="startCapture">
-            <UiIcon name="screenshot" />
-            截图
-            <kbd>{{ formatHotkey(settingsForm.hotkeys.screenshot, isMac) }}</kbd>
-          </button>
-          <button v-if="settingsForm.translationEnabled" class="primary-button" @click="startTranslation">
-            <UiIcon name="translate" />
-            划词翻译
-            <kbd>{{ formatHotkey(settingsForm.hotkeys.translate, isMac) }}</kbd>
-          </button>
-        </div>
       </header>
 
       <div v-if="loading" class="center-state">
@@ -466,40 +369,12 @@ onBeforeUnmount(() => {
         <button class="secondary-button" @click="load">重试</button>
       </div>
 
-      <div v-else-if="section === 'home'" class="workspace">
-        <section class="hero">
-          <div class="hero-copy">
-            <span class="hero-kicker"><UiIcon name="spark" :size="15" /> 即用即走，不打断思路</span>
-            <h2>选中、按下、完成。</h2>
-            <p>
-              S-Tools 把划词翻译与截屏标注放在同一个轻量入口里。快捷键触发，结束即回到手头工作。
-            </p>
-            <div class="hero-actions">
-              <button v-if="settingsForm.translationEnabled" class="primary-button" @click="startTranslation">
-                <UiIcon name="translate" />
-                翻译当前选中文本
-              </button>
-              <button v-if="settingsForm.screenshotEnabled" class="secondary-button" @click="startCapture">
-                <UiIcon name="screenshot" />
-                开始截图
-              </button>
-              <span v-if="!settingsForm.translationEnabled && !settingsForm.screenshotEnabled" class="hero-off-hint">
-                在下方开启需要使用的功能
-              </span>
-            </div>
-          </div>
-          <div class="hero-art" aria-hidden="true">
-            <div class="floating-card translation-card">
-              <span>TRANSLATE</span>
-              <strong>把复杂留给自己，<br />把简单留给使用。</strong>
-              <div class="mini-line"></div>
-              <small>Keep complexity inside.</small>
-            </div>
-            <div class="floating-card capture-card">
-              <div class="capture-dots"><i></i><i></i><i></i></div>
-              <div class="capture-frame"></div>
-              <span>区域截图 · {{ formatHotkey(settingsForm.hotkeys.screenshot, isMac) }}</span>
-            </div>
+      <div v-else-if="section === 'overview'" class="workspace">
+        <section class="section-intro">
+          <div>
+            <span class="eyebrow">PLUGINS</span>
+            <h2>插件概览</h2>
+            <p>按需启用插件。关闭后隐藏对应 Tab，并注销插件快捷键。</p>
           </div>
         </section>
 
@@ -544,150 +419,6 @@ onBeforeUnmount(() => {
           </article>
         </section>
 
-        <section class="stat-grid">
-          <article v-if="settingsForm.translationEnabled" class="stat-card">
-            <span class="stat-icon accent"><UiIcon name="provider" /></span>
-            <div>
-              <strong>{{ enabledProviders.length }}</strong>
-              <span>已启用翻译服务</span>
-            </div>
-            <button class="ghost-button" @click="section = 'translation'">管理</button>
-          </article>
-          <article class="stat-card">
-            <span class="stat-icon blue"><UiIcon name="history" /></span>
-            <div>
-              <strong>{{
-                (data?.translationHistory.length || 0) + (data?.screenshotHistory.length || 0)
-              }}</strong>
-              <span>历史记录</span>
-            </div>
-            <button class="ghost-button" @click="section = 'history'">查看</button>
-          </article>
-          <article v-if="settingsForm.screenshotEnabled" class="stat-card">
-            <span class="stat-icon green"><UiIcon name="image" /></span>
-            <div>
-              <strong>{{ data?.screenshotHistory.length || 0 }}</strong>
-              <span>截图记录</span>
-            </div>
-            <button class="ghost-button" @click="section = 'history'; historyTab = 'screenshot'">查看</button>
-          </article>
-        </section>
-
-        <section class="permission-strip">
-          <div class="permission-heading">
-            <span class="stat-icon"><UiIcon name="shield" /></span>
-            <div>
-              <strong>系统权限</strong>
-              <span>划词读取和屏幕捕获需要系统授权</span>
-            </div>
-          </div>
-          <div class="permission-items">
-            <button
-              class="permission-item"
-              @click="openPermission('accessibility')"
-            >
-              <span :class="['permission-status', { ok: data?.permissions.accessibility }]">
-                <UiIcon :name="data?.permissions.accessibility ? 'check' : 'alert'" :size="14" />
-              </span>
-              <span>
-                <strong>辅助功能</strong>
-                <small>{{ data?.permissions.accessibility ? "已授权" : "需要授权" }}</small>
-              </span>
-              <UiIcon name="arrow" :size="15" />
-            </button>
-            <button
-              class="permission-item"
-              @click="openPermission('screenRecording')"
-            >
-              <span :class="['permission-status', { ok: data?.permissions.screenRecording }]">
-                <UiIcon :name="data?.permissions.screenRecording ? 'check' : 'alert'" :size="14" />
-              </span>
-              <span>
-                <strong>屏幕录制</strong>
-                <small>{{ data?.permissions.screenRecording ? "已授权" : "需要授权" }}</small>
-              </span>
-              <UiIcon name="arrow" :size="15" />
-            </button>
-          </div>
-        </section>
-
-        <section v-if="settingsForm.translationEnabled" class="quick-guide">
-          <div>
-            <span class="eyebrow">QUICK START</span>
-            <h3>三步开始使用</h3>
-          </div>
-          <div class="guide-step">
-            <strong>01</strong>
-            <span>在任意应用选中文本</span>
-          </div>
-          <div class="guide-step">
-            <strong>02</strong>
-            <span>按下划词翻译快捷键</span>
-          </div>
-          <div class="guide-step">
-            <strong>03</strong>
-            <span>对照结果并一键复制</span>
-          </div>
-        </section>
-      </div>
-
-      <div v-else-if="section === 'history'" class="workspace">
-        <section class="page-toolbar">
-          <div class="segmented">
-            <button
-              :class="{ active: historyTab === 'translation' }"
-              @click="historyTab = 'translation'"
-            >
-              翻译记录
-              <span>{{ data?.translationHistory.length || 0 }}</span>
-            </button>
-            <button
-              :class="{ active: historyTab === 'screenshot' }"
-              @click="historyTab = 'screenshot'"
-            >
-              截图记录
-              <span>{{ data?.screenshotHistory.length || 0 }}</span>
-            </button>
-          </div>
-          <button class="ghost-button" @click="refreshHistory">
-            <UiIcon name="update" />
-            刷新
-          </button>
-        </section>
-
-        <div v-if="currentHistory.length" class="history-list">
-          <article v-for="item in currentHistory" :key="`${item.kind}-${item.id}`" class="history-item">
-            <div v-if="item.kind === 'screenshot' && item.path" class="history-thumb">
-              <img :src="assetUrl(item.path)" alt="" />
-            </div>
-            <div v-else class="history-thumb translation-thumb">
-              <span>A</span>
-              <UiIcon name="arrow" :size="15" />
-              <span>文</span>
-            </div>
-            <div class="history-copy">
-              <div class="history-title-row">
-                <strong>{{ truncate(item.title || "未命名记录", 70) }}</strong>
-                <span>{{ formatDate(item.createdAt) }}</span>
-              </div>
-              <p>{{ truncate(item.subtitle || (item.kind === "screenshot" ? "截图文件" : ""), 130) }}</p>
-              <span v-if="item.providerId" class="badge">{{ item.providerId }}</span>
-            </div>
-            <div class="history-actions">
-              <button class="ghost-button" title="复制" @click="copyHistory(item)">
-                <UiIcon name="copy" />
-              </button>
-              <button class="ghost-button danger-text" title="删除" @click="deleteHistory(item)">
-                <UiIcon name="trash" />
-              </button>
-            </div>
-          </article>
-        </div>
-        <div v-else class="empty-state">
-          <span class="empty-icon"><UiIcon name="history" :size="28" /></span>
-          <strong>还没有记录</strong>
-          <span>完成一次{{ historyTab === "translation" ? "翻译" : "截图" }}后，记录会出现在这里。</span>
-        </div>
       </div>
 
       <div v-else-if="section === 'translation'" class="workspace translation-workspace">
@@ -698,6 +429,39 @@ onBeforeUnmount(() => {
             <p>按需启用，可同时对照多个服务的结果。密钥仅保存在系统凭据库。</p>
           </div>
           <span class="badge accent">{{ enabledProviders.length }} 个服务已启用</span>
+        </section>
+
+        <section class="permission-strip plugin-permission-strip">
+          <div class="permission-heading">
+            <span class="stat-icon"><UiIcon name="shield" /></span>
+            <div>
+              <strong>辅助功能权限</strong>
+              <span>用于读取当前应用中被选中的文本。</span>
+            </div>
+          </div>
+          <div class="permission-items">
+            <button
+              v-if="isMac"
+              class="permission-item"
+              @click="openPermission('accessibility')"
+            >
+              <span :class="['permission-status', { ok: data?.permissions.accessibility }]">
+                <UiIcon :name="data?.permissions.accessibility ? 'check' : 'alert'" :size="14" />
+              </span>
+              <span>
+                <strong>{{ data?.permissions.accessibility ? "已授权" : "需要授权" }}</strong>
+                <small>点击打开 macOS 系统设置</small>
+              </span>
+              <UiIcon name="arrow" :size="15" />
+            </button>
+            <div v-else class="permission-item static">
+              <span class="permission-status ok"><UiIcon name="check" :size="14" /></span>
+              <span>
+                <strong>无需额外授权</strong>
+                <small>Windows 通过模拟复制读取选中文本</small>
+              </span>
+            </div>
+          </div>
         </section>
 
         <div class="tool-settings-grid">
@@ -791,6 +555,39 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
+        <section class="permission-strip plugin-permission-strip">
+          <div class="permission-heading">
+            <span class="stat-icon"><UiIcon name="shield" /></span>
+            <div>
+              <strong>屏幕录制权限</strong>
+              <span>用于捕获当前显示器画面并进入标注编辑。</span>
+            </div>
+          </div>
+          <div class="permission-items">
+            <button
+              v-if="isMac"
+              class="permission-item"
+              @click="openPermission('screenRecording')"
+            >
+              <span :class="['permission-status', { ok: data?.permissions.screenRecording }]">
+                <UiIcon :name="data?.permissions.screenRecording ? 'check' : 'alert'" :size="14" />
+              </span>
+              <span>
+                <strong>{{ data?.permissions.screenRecording ? "已授权" : "需要授权" }}</strong>
+                <small>点击打开 macOS 系统设置</small>
+              </span>
+              <UiIcon name="arrow" :size="15" />
+            </button>
+            <div v-else class="permission-item static">
+              <span class="permission-status ok"><UiIcon name="check" :size="14" /></span>
+              <span>
+                <strong>无需额外授权</strong>
+                <small>Windows 可直接捕获屏幕</small>
+              </span>
+            </div>
+          </div>
+        </section>
+
         <div class="screenshot-feature-grid">
           <article class="screenshot-action-panel">
             <div class="screenshot-art">
@@ -814,44 +611,18 @@ onBeforeUnmount(() => {
 
           <article class="screenshot-config-panel">
             <div class="feature-panel-head">
-              <span class="stat-icon green"><UiIcon name="image" /></span>
+              <span class="stat-icon green"><UiIcon name="keyboard" /></span>
               <div>
-                <strong>功能状态</strong>
-                <span>关闭后隐藏截图导航并注销截图快捷键</span>
+                <strong>截图快捷键</strong>
+                <span>按下快捷键即可进入截图模式</span>
               </div>
             </div>
-            <div class="settings-row">
-              <span>
-                <strong>截图标注</strong>
-                <small>当前为{{ settingsForm.screenshotEnabled ? "开启" : "关闭" }}状态</small>
-              </span>
-              <button
-                type="button"
-                :class="['toggle', { active: settingsForm.screenshotEnabled }]"
-                :aria-label="settingsForm.screenshotEnabled ? '关闭截图' : '开启截图'"
-                :disabled="featureSaving"
-                @click="toggleFeature('screenshot')"
-              >
-                <span></span>
-              </button>
-            </div>
             <div class="field">
-              <span>截图快捷键</span>
               <HotkeyRecorder
                 v-model="settingsForm.hotkeys.screenshot"
                 label="区域截图快捷键"
                 :conflict-value="settingsForm.hotkeys.translate"
               />
-            </div>
-            <div class="screenshot-summary">
-              <div>
-                <strong>{{ data?.screenshotHistory.length || 0 }}</strong>
-                <span>截图历史</span>
-              </div>
-              <div>
-                <strong>{{ settingsForm.screenshotEnabled ? "已开启" : "已关闭" }}</strong>
-                <span>功能状态</span>
-              </div>
             </div>
           </article>
         </div>
@@ -863,39 +634,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <section class="recent-captures">
-          <div class="recent-captures-head">
-            <div>
-              <span class="eyebrow">RECENT CAPTURES</span>
-              <h3>最近截图</h3>
-            </div>
-            <button
-              class="ghost-button"
-              @click="section = 'history'; historyTab = 'screenshot'"
-            >
-              查看全部
-              <UiIcon name="arrow" :size="14" />
-            </button>
-          </div>
-          <div v-if="recentScreenshots.length" class="recent-capture-grid">
-            <article v-for="item in recentScreenshots" :key="item.id" class="recent-capture-card">
-              <button class="recent-thumb" @click="copyHistory(item)">
-                <img v-if="item.path" :src="assetUrl(item.path)" alt="" />
-              </button>
-              <div>
-                <strong>{{ formatDate(item.createdAt) }}</strong>
-                <span>{{ item.subtitle }}</span>
-              </div>
-              <button class="ghost-button danger-text" title="删除" @click="deleteHistory(item)">
-                <UiIcon name="trash" :size="14" />
-              </button>
-            </article>
-          </div>
-          <div v-else class="screenshot-empty">
-            <UiIcon name="image" :size="24" />
-            <span>还没有截图，开启功能后按快捷键试试。</span>
-          </div>
-        </section>
       </div>
 
       <div v-else-if="section === 'settings'" class="workspace settings-workspace">
@@ -917,19 +655,6 @@ onBeforeUnmount(() => {
             </label>
             <label class="settings-row">
               <span>
-                <strong>历史保留数量</strong>
-                <small>翻译与截图各自保留的记录上限</small>
-              </span>
-              <input
-                v-model.number="settingsForm.historyLimit"
-                class="text-input compact-input"
-                type="number"
-                min="20"
-                max="1000"
-              />
-            </label>
-            <label class="settings-row">
-              <span>
                 <strong>外观</strong>
                 <small>跟随系统或固定主题</small>
               </span>
@@ -948,54 +673,54 @@ onBeforeUnmount(() => {
             {{ settingsSaving ? "保存中…" : "保存设置" }}
           </button>
         </div>
-      </div>
 
-      <div v-else class="workspace updates-workspace">
-        <section class="update-hero">
-          <div class="update-mark"><AppIcon :size="72" /></div>
-          <div>
-            <span class="eyebrow">S-TOOLS DESKTOP</span>
-            <h2>版本 {{ data?.version || "1.0.0" }}</h2>
-            <p>更新清单来自 GitHub Release，下载后会校验 SHA256 再安装。</p>
-          </div>
-          <button class="primary-button" :disabled="updateChecking" @click="checkUpdate">
-            <span v-if="updateChecking" class="spinner"></span>
-            {{ updateChecking ? "检查中…" : "检查更新" }}
-          </button>
-        </section>
-
-        <section v-if="updateInfo" class="update-card">
-          <div class="update-card-head">
+        <section class="update-settings-section">
+          <section class="update-hero">
+            <div class="update-mark"><AppIcon :size="72" /></div>
             <div>
-              <span class="badge accent">新版本</span>
-              <h3>v{{ updateInfo.version }}</h3>
+              <span class="eyebrow">S-TOOLS DESKTOP</span>
+              <h2>版本 {{ data?.version || "1.0.0" }}</h2>
+              <p>更新清单来自 GitHub Release，下载后会校验 SHA256 再安装。</p>
             </div>
-            <span>{{ updateInfo.selfUpdate ? "自动安装" : "手动安装" }}</span>
-          </div>
-          <p class="update-notes">{{ updateInfo.notes || "本次更新暂无说明。" }}</p>
-          <div v-if="updateInstalling" class="progress-track">
-            <span :style="{ width: `${updateProgress}%` }"></span>
-          </div>
-          <button class="primary-button" :disabled="updateInstalling" @click="installUpdate">
-            {{ updateInstalling ? `下载中 ${updateProgress}%` : updateInfo.selfUpdate ? "下载并安装" : "下载安装包" }}
-          </button>
-        </section>
+            <button class="primary-button" :disabled="updateChecking" @click="checkUpdate">
+              <span v-if="updateChecking" class="spinner"></span>
+              {{ updateChecking ? "检查中…" : "检查更新" }}
+            </button>
+          </section>
 
-        <div v-if="updateMessage" class="notice-box success">
-          <UiIcon name="check" />
-          {{ updateMessage }}
-        </div>
-        <div v-if="updateError" class="notice-box danger">
-          <UiIcon name="alert" />
-          {{ updateError }}
-        </div>
+          <section v-if="updateInfo" class="update-card">
+            <div class="update-card-head">
+              <div>
+                <span class="badge accent">新版本</span>
+                <h3>v{{ updateInfo.version }}</h3>
+              </div>
+              <span>{{ updateInfo.selfUpdate ? "自动安装" : "手动安装" }}</span>
+            </div>
+            <p class="update-notes">{{ updateInfo.notes || "本次更新暂无说明。" }}</p>
+            <div v-if="updateInstalling" class="progress-track">
+              <span :style="{ width: `${updateProgress}%` }"></span>
+            </div>
+            <button class="primary-button" :disabled="updateInstalling" @click="installUpdate">
+              {{ updateInstalling ? `下载中 ${updateProgress}%` : updateInfo.selfUpdate ? "下载并安装" : "下载安装包" }}
+            </button>
+          </section>
 
-        <section class="release-notes">
-          <h3>发布规则</h3>
-          <p>
-            macOS 提供 DMG 与可自更新 app.zip，Windows 提供 NSIS 安装包。当前版本使用 ad-hoc
-            签名，系统可能要求首次手动放行；升级后可能需要重新授予辅助功能或屏幕录制权限。
-          </p>
+          <div v-if="updateMessage" class="notice-box success">
+            <UiIcon name="check" />
+            {{ updateMessage }}
+          </div>
+          <div v-if="updateError" class="notice-box danger">
+            <UiIcon name="alert" />
+            {{ updateError }}
+          </div>
+
+          <section class="release-notes">
+            <h3>发布规则</h3>
+            <p>
+              macOS 提供 DMG 与可自更新 app.zip，Windows 提供 NSIS 安装包。当前版本使用 ad-hoc
+              签名，系统可能要求首次手动放行；升级后可能需要重新授予辅助功能或屏幕录制权限。
+            </p>
+          </section>
         </section>
       </div>
     </main>
@@ -1236,11 +961,6 @@ onBeforeUnmount(() => {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.13em;
-}
-
-.top-actions {
-  display: flex;
-  gap: 10px;
 }
 
 kbd {
@@ -1625,6 +1345,10 @@ kbd {
   background: var(--bg-elevated);
 }
 
+.plugin-permission-strip {
+  margin-bottom: 18px;
+}
+
 .permission-heading {
   display: flex;
   align-items: center;
@@ -1668,6 +1392,10 @@ kbd {
 
 .permission-item:hover {
   border-color: var(--line-strong);
+}
+
+.permission-item.static {
+  cursor: default;
 }
 
 .permission-item strong,
@@ -1784,93 +1512,6 @@ kbd {
 .segmented span {
   color: var(--text-muted);
   font-size: 10px;
-}
-
-.history-list {
-  display: grid;
-  gap: 10px;
-}
-
-.history-item {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  padding: 13px;
-  border: 1px solid var(--line);
-  border-radius: 15px;
-  background: var(--bg-elevated);
-}
-
-.history-thumb {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 74px;
-  height: 52px;
-  overflow: hidden;
-  border-radius: 9px;
-  background: var(--bg-soft);
-}
-
-.history-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.translation-thumb {
-  gap: 7px;
-  background: linear-gradient(135deg, var(--accent-soft), var(--bg-soft));
-  color: var(--accent-strong);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.history-copy {
-  min-width: 0;
-  flex: 1;
-}
-
-.history-title-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 18px;
-}
-
-.history-title-row strong {
-  overflow: hidden;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-title-row span {
-  flex: 0 0 auto;
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.history-copy p {
-  margin: 6px 0;
-  overflow: hidden;
-  color: var(--text-soft);
-  font-size: 11px;
-  line-height: 1.5;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-actions {
-  display: flex;
-  gap: 2px;
-}
-
-.history-actions .ghost-button {
-  width: 32px;
-  min-height: 32px;
-  padding: 0;
 }
 
 .danger-text {
@@ -2370,9 +2011,10 @@ kbd {
   justify-content: flex-end;
 }
 
-.updates-workspace {
+.update-settings-section {
   display: grid;
-  gap: 14px;
+  gap: 18px;
+  margin-top: 22px;
 }
 
 .update-hero,

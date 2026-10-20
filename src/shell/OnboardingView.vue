@@ -19,7 +19,6 @@ const settings = reactive<AppSettings>({
   screenshotEnabled: false,
   targetLang: "auto",
   launchAtLogin: false,
-  historyLimit: 200,
   theme: "dark",
   hasCompletedOnboarding: false,
 });
@@ -49,7 +48,7 @@ async function finish() {
     settings.hasCompletedOnboarding = true;
     const saved = await call<AppSettings>("save_settings", { input: settings });
     Object.assign(settings, saved);
-    await call("open_main_window", { section: "home" });
+    await call("open_main_window", { section: "overview" });
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason);
   } finally {
