@@ -36,7 +36,8 @@ defineProps<{ name: string; size?: number }>();
     <path v-else-if="name === 'image'" d="M4 5h16v14H4zM7 15l3-3 3 3 2-2 3 3M8 9h.01" />
     <path v-else-if="name === 'close'" d="m6 6 12 12M18 6 6 18" />
     <path v-else-if="name === 'arrow'" d="M5 12h14M14 7l5 5-5 5" />
-    <path v-else-if="name === 'pin'" d="m9 3 6 6-2 2 4 6-4 4-6-4-2 2-6-6 2-2-2-6z" />
+    <path v-else-if="name === 'annotation-arrow'" d="M5 19 19 5M9 5h10v10" />
+    <path v-else-if="name === 'cursor'" d="M5 3l14 8-6 1.5L10 19z" />
     <path v-else-if="name === 'save'" d="M5 3h12l3 3v15H4V3zM8 3v6h8V3M8 21v-7h8v7" />
     <path v-else-if="name === 'plus'" d="M12 5v14M5 12h14" />
     <path v-else-if="name === 'language'" d="M4 5h10M9 3v2c0 5-2.4 8.7-6 10M6 9c1.4 3 3.7 5.1 7 6M14 19l3.2-9 3.2 9M15.2 16h4.1" />

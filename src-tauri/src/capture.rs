@@ -413,7 +413,7 @@ pub fn decode_and_store(
     if bytes.len() > 60 * 1024 * 1024 {
         return Err("截图数据过大，无法保存".into());
     }
-    if !matches!(request.action.as_str(), "copy" | "save" | "pin") {
+    if !matches!(request.action.as_str(), "copy" | "save") {
         return Err("未知截图操作".into());
     }
     let image =
@@ -453,11 +453,6 @@ pub fn decode_and_store(
     }
 
     storage.add_screenshot(&history_path, width, height, history_limit)?;
-
-    if request.action == "pin" {
-        open_pin_window(app, &history_path, width, height)?;
-        message = "已创建贴图窗口".into();
-    }
 
     cleanup_session(app, sessions, ready, &request.session_id);
     Ok(CompleteCaptureResult {
@@ -520,63 +515,6 @@ fn unique_path(path: PathBuf) -> PathBuf {
     path
 }
 
-fn open_pin_window(
-    app: &AppHandle,
-    path: &Path,
-    image_width: u32,
-    image_height: u32,
-) -> Result<(), String> {
-    let id = Uuid::new_v4().to_string();
-    let label = format!("pin-{id}");
-    let url = format!(
-        "index.html?view=pin&path={}",
-        urlencoding(&path.to_string_lossy())
-    );
-    let max_width = 860.0;
-    let max_height = 700.0;
-    let ratio = (max_width / image_width as f64)
-        .min(max_height / image_height as f64)
-        .min(1.0);
-    let width = (image_width as f64 * ratio).max(120.0);
-    let height = (image_height as f64 * ratio).max(80.0);
-    let cursor = app.cursor_position().unwrap_or_default();
-    let monitor = app.monitor_from_point(cursor.x, cursor.y).ok().flatten();
-    let (position_x, position_y) = monitor
-        .map(|monitor| {
-            let scale = monitor.scale_factor();
-            let work = monitor.work_area();
-            (
-                (cursor.x / scale - width / 2.0).clamp(
-                    work.position.x as f64 / scale,
-                    (work.position.x as f64 + work.size.width as f64) / scale - width,
-                ),
-                (cursor.y / scale - height / 2.0).clamp(
-                    work.position.y as f64 / scale,
-                    (work.position.y as f64 + work.size.height as f64) / scale - height,
-                ),
-            )
-        })
-        .unwrap_or((120.0, 120.0));
-    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
-        .title("S-Tools 贴图")
-        .inner_size(width, height)
-        .position(position_x, position_y)
-        .resizable(true)
-        .maximizable(false)
-        .minimizable(false)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .transparent(true)
-        .shadow(false)
-        .build()
-        .map_err(|error| format!("创建贴图窗口失败：{error}"))?;
-    window
-        .show()
-        .map_err(|error| format!("显示贴图窗口失败：{error}"))?;
-    Ok(())
-}
-
 pub fn hide_capture_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(CAPTURE_WINDOW_LABEL) {
         let _ = window.hide();
@@ -602,10 +540,6 @@ pub fn cleanup_session(
     hide_capture_window(app);
     let _ = app.emit("capture://ended", ());
     restore_foreground_app(foreground_app_id);
-}
-
-fn urlencoding(value: &str) -> String {
-    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 
 #[cfg(test)]

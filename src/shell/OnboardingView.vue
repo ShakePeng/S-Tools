@@ -96,8 +96,8 @@ onMounted(async () => {
           </div>
           <div>
             <UiIcon name="screenshot" :size="24" />
-            <strong>截图贴图</strong>
-            <span>冻结画面、标注、复制、保存和贴图。</span>
+            <strong>截图标注</strong>
+            <span>冻结画面、标注、复制和保存。</span>
           </div>
         </div>
       </div>

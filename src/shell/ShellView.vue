@@ -527,15 +527,15 @@ onBeforeUnmount(() => {
             <span class="feature-switch-icon"><UiIcon name="screenshot" :size="21" /></span>
             <div class="feature-switch-copy">
               <div>
-                <strong>截图与贴图</strong>
+                <strong>截图标注</strong>
                 <span>{{ settingsForm.screenshotEnabled ? "已开启" : "默认关闭" }}</span>
               </div>
-              <p>捕获当前屏幕，完成标注、复制、保存和贴图。</p>
+              <p>捕获当前屏幕，完成标注、复制和保存。</p>
             </div>
             <button
               type="button"
               :class="['feature-switch', { active: settingsForm.screenshotEnabled }]"
-              :aria-label="settingsForm.screenshotEnabled ? '关闭截图与贴图' : '开启截图与贴图'"
+              :aria-label="settingsForm.screenshotEnabled ? '关闭截图标注' : '开启截图标注'"
               :disabled="featureSaving"
               @click="toggleFeature('screenshot')"
             >
@@ -781,8 +781,8 @@ onBeforeUnmount(() => {
         <section class="section-intro">
           <div>
             <span class="eyebrow">SCREENSHOT</span>
-            <h2>截图与贴图</h2>
-            <p>冻结当前屏幕，完成框选、标注、复制、保存或贴图。</p>
+            <h2>截图标注</h2>
+            <p>冻结当前屏幕，完成框选、标注、复制和保存。</p>
           </div>
           <button class="primary-button" @click="startCapture">
             <UiIcon name="screenshot" />
@@ -822,7 +822,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="settings-row">
               <span>
-                <strong>截图与贴图</strong>
+                <strong>截图标注</strong>
                 <small>当前为{{ settingsForm.screenshotEnabled ? "开启" : "关闭" }}状态</small>
               </span>
               <button

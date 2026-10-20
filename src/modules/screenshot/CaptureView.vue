@@ -152,7 +152,7 @@ const toolbarStyle = computed(() => {
     selection.value,
     {
       width: toolbarSize.width || 620,
-      height: toolbarSize.height || 44,
+      height: toolbarSize.height || 66,
     },
     viewport.value,
   );
@@ -864,6 +864,8 @@ async function loadCaptureSession(nextSession: CaptureSession) {
 
     try {
       const probe = new Image();
+      // asset 协议与页面跨源，CORS 加载后 Canvas 才能安全导出截图。
+      probe.crossOrigin = "anonymous";
       probe.src = source;
       await probe.decode();
     } catch {
@@ -974,9 +976,16 @@ onBeforeUnmount(() => {
       ref="imageElement"
       class="capture-image"
       :src="imageSrc"
+      crossorigin="anonymous"
       alt=""
       draggable="false"
     />
+
+    <div
+      v-if="!selection && !loading && imageSrc"
+      class="capture-ready-veil"
+      aria-hidden="true"
+    ></div>
 
     <div
       v-if="hoverWindow"
@@ -1077,111 +1086,108 @@ onBeforeUnmount(() => {
       :style="toolbarStyle"
       @pointerdown.stop
     >
-      <div class="tool-group">
-        <button :class="{ active: tool == 'select' }" title="选择/移动" @click="setTool('select')">
-          <UiIcon name="screenshot" />
-        </button>
-        <button :class="{ active: tool == 'rectangle' }" title="矩形" @click="setTool('rectangle')">
-          <span class="tool-shape rect"></span>
-        </button>
-        <button :class="{ active: tool == 'ellipse' }" title="椭圆" @click="setTool('ellipse')">
-          <span class="tool-shape ellipse"></span>
-        </button>
-        <button :class="{ active: tool == 'line' }" title="直线" @click="setTool('line')">
-          <span class="tool-line"></span>
-        </button>
-        <button :class="{ active: tool == 'arrow' }" title="箭头" @click="setTool('arrow')">
-          <UiIcon name="arrow" />
-        </button>
-        <button :class="{ active: tool == 'pen' }" title="画笔" @click="setTool('pen')">
-          <UiIcon name="edit" />
-        </button>
-        <button :class="{ active: tool == 'text' }" title="文字" @click="setTool('text')">
-          <strong>Aa</strong>
-        </button>
-        <button :class="{ active: tool == 'mosaic' }" title="马赛克" @click="setTool('mosaic')">
-          <span class="mosaic-icon"></span>
-        </button>
-      </div>
+      <div class="toolbar-main">
+        <div class="tool-group">
+          <button :class="{ active: tool == 'select' }" title="选择/移动" @click="setTool('select')">
+            <UiIcon name="cursor" :size="16" />
+          </button>
+          <button :class="{ active: tool == 'rectangle' }" title="矩形" @click="setTool('rectangle')">
+            <span class="tool-shape rect"></span>
+          </button>
+          <button :class="{ active: tool == 'ellipse' }" title="椭圆" @click="setTool('ellipse')">
+            <span class="tool-shape ellipse"></span>
+          </button>
+          <button :class="{ active: tool == 'line' }" title="直线" @click="setTool('line')">
+            <span class="tool-line"></span>
+          </button>
+          <button :class="{ active: tool == 'arrow' }" title="箭头" @click="setTool('arrow')">
+            <UiIcon name="annotation-arrow" :size="16" />
+          </button>
+          <button :class="{ active: tool == 'pen' }" title="画笔" @click="setTool('pen')">
+            <UiIcon name="edit" :size="16" />
+          </button>
+          <button :class="{ active: tool == 'mosaic' }" title="马赛克" @click="setTool('mosaic')">
+            <span class="mosaic-icon"></span>
+          </button>
+          <button :class="{ active: tool == 'text' }" title="文字" @click="setTool('text')">
+            <strong>Aa</strong>
+          </button>
+        </div>
 
-      <div class="tool-divider"></div>
-      <div class="color-presets">
-        <button
-          v-for="preset in COLOR_PRESETS.slice(0, 6)"
-          :key="preset"
-          :class="{ active: appearance.colorPreset == preset }"
-          :style="{ background: COLOR_HEX[preset] }"
-          :title="preset"
-          @click="setColor(preset)"
-        ></button>
-      </div>
-
-      <label v-if="tool == 'pen' || tool == 'rectangle' || tool == 'ellipse' || tool == 'line' || tool == 'arrow'" class="width-control">
-        <input
-          :value="tool == 'pen' ? appearance.penWidth : appearance.shapeWidth"
-          type="range"
-          min="1"
-          max="10"
-          @input="setStrokeWidthFromInput"
-        />
-        <span>{{ tool == 'pen' ? appearance.penWidth : appearance.shapeWidth }}px</span>
-      </label>
-
-      <template v-if="tool == 'mosaic'">
         <div class="tool-divider"></div>
-        <button
-          :class="{ active: appearance.mosaicStyle == 'pixel' }"
-          title="像素马赛克"
-          @click="setMosaicStyle('pixel')"
-        >
-          <span class="mosaic-icon"></span>
+        <button title="撤销" :disabled="!canUndo" @click="undo">
+          <span class="undo-mark">↶</span>
         </button>
-        <button
-          :class="{ active: appearance.mosaicStyle == 'blur' }"
-          title="模糊"
-          @click="setMosaicStyle('blur')"
-        >
-          <span class="blur-icon"></span>
+        <button title="重做" :disabled="!canRedo" @click="redo">
+          <span class="undo-mark">↷</span>
         </button>
-        <select
-          :value="appearance.mosaicIntensity"
-          class="toolbar-select"
-          @change="setMosaicIntensityFromSelect"
-        >
-          <option value="soft">弱</option>
-          <option value="standard">中</option>
-          <option value="strong">强</option>
-        </select>
-      </template>
+        <button title="删除选中标注" :disabled="selectedIndex == null" @click="deleteSelected">
+          <UiIcon name="trash" :size="15" />
+        </button>
 
-      <div class="tool-divider"></div>
-      <button title="撤销" :disabled="!canUndo" @click="undo">
-        <span class="undo-mark">↶</span>
-      </button>
-      <button title="重做" :disabled="!canRedo" @click="redo">
-        <span class="undo-mark">↷</span>
-      </button>
-      <button title="删除选中标注" :disabled="selectedIndex == null" @click="deleteSelected">
-        <UiIcon name="trash" :size="15" />
-      </button>
+        <div class="tool-divider"></div>
+        <button class="toolbar-save" title="保存" :disabled="saving" @click="complete('save')">
+          <UiIcon name="save" :size="16" />
+        </button>
+        <button class="toolbar-copy" title="复制" :disabled="saving" @click="complete('copy')">
+          <span v-if="saving" class="spinner"></span>
+          <UiIcon v-else name="copy" :size="16" />
+        </button>
+        <button class="toolbar-close" title="取消截图" @click="cancel">
+          <UiIcon name="close" :size="16" />
+        </button>
+      </div>
 
-      <div class="tool-divider"></div>
-      <button title="取消截图" @click="cancel">
-        <UiIcon name="close" />
-      </button>
-      <button class="tool-action secondary" :disabled="saving" @click="complete('save')">
-        <UiIcon name="save" />
-        保存
-      </button>
-      <button class="tool-action secondary" :disabled="saving" @click="complete('pin')">
-        <UiIcon name="pin" />
-        贴图
-      </button>
-      <button class="tool-action primary" :disabled="saving" @click="complete('copy')">
-        <span v-if="saving" class="spinner"></span>
-        <UiIcon v-else name="copy" />
-        复制
-      </button>
+      <div v-if="tool != 'select'" class="toolbar-options">
+        <div class="color-presets">
+          <button
+            v-for="preset in COLOR_PRESETS"
+            :key="preset"
+            :class="{ active: appearance.colorPreset == preset }"
+            :style="{ background: COLOR_HEX[preset] }"
+            :title="preset"
+            @click="setColor(preset)"
+          ></button>
+        </div>
+
+        <label v-if="tool == 'pen' || tool == 'rectangle' || tool == 'ellipse' || tool == 'line' || tool == 'arrow'" class="width-control">
+          <input
+            :value="tool == 'pen' ? appearance.penWidth : appearance.shapeWidth"
+            type="range"
+            min="1"
+            max="10"
+            @input="setStrokeWidthFromInput"
+          />
+          <span>{{ tool == 'pen' ? appearance.penWidth : appearance.shapeWidth }}px</span>
+        </label>
+
+        <template v-if="tool == 'mosaic'">
+          <div class="tool-divider"></div>
+          <button
+            :class="{ active: appearance.mosaicStyle == 'pixel' }"
+            title="像素马赛克"
+            @click="setMosaicStyle('pixel')"
+          >
+            <span class="mosaic-icon"></span>
+          </button>
+          <button
+            :class="{ active: appearance.mosaicStyle == 'blur' }"
+            title="模糊"
+            @click="setMosaicStyle('blur')"
+          >
+            <span class="blur-icon"></span>
+          </button>
+          <select
+            :value="appearance.mosaicIntensity"
+            class="toolbar-select"
+            @change="setMosaicIntensityFromSelect"
+          >
+            <option value="soft">弱</option>
+            <option value="standard">中</option>
+            <option value="strong">强</option>
+          </select>
+        </template>
+      </div>
     </div>
 
     <button
@@ -1231,6 +1237,27 @@ onBeforeUnmount(() => {
   height: 100%;
   object-fit: fill;
   pointer-events: none;
+}
+
+.capture-ready-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 1px solid rgba(47, 154, 232, 0.9);
+  background: rgba(5, 6, 8, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+  animation: capture-ready-in 120ms ease-out;
+}
+
+@keyframes capture-ready-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .hover-window {
@@ -1390,21 +1417,41 @@ onBeforeUnmount(() => {
   position: fixed;
   z-index: 30;
   display: flex;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
+  width: max-content;
   max-width: calc(100vw - 24px);
-  padding: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 13px;
-  background: #1b1c20;
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.5);
+  border: 1px solid #2f9ae8;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
   overflow-x: auto;
+  overflow-y: hidden;
   cursor: default;
+}
+
+.toolbar-main,
+.toolbar-options {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.toolbar-main {
+  gap: 1px;
+  padding: 2px;
+}
+
+.toolbar-options {
+  min-height: 28px;
+  gap: 6px;
+  padding: 2px 5px;
+  border-top: 1px solid #d8d8d8;
+  background: #f7f7f7;
 }
 
 .tool-group {
   display: flex;
-  gap: 2px;
+  gap: 1px;
 }
 
 .capture-toolbar button {
@@ -1412,39 +1459,44 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  width: 31px;
-  height: 31px;
+  width: 27px;
+  height: 27px;
   padding: 0;
-  border: 0;
-  border-radius: 7px;
+  border: 1px solid transparent;
+  border-radius: 1px;
   background: transparent;
-  color: #a8a7a2;
-  font-size: 9px;
+  color: #171717;
+  font-size: 10px;
   cursor: pointer;
 }
 
 .capture-toolbar button,
-.capture-toolbar .tool-divider,
-.capture-toolbar .color-presets,
-.capture-toolbar .width-control {
+.capture-toolbar .tool-divider {
   flex-shrink: 0;
 }
 
 .capture-toolbar button:hover:not(:disabled) {
-  background: #2b2c31;
-  color: #f3f0e9;
+  border-color: #9ed2f2;
+  background: #eaf5fd;
+  color: #111111;
 }
 
 .capture-toolbar button.active {
-  background: rgba(247, 147, 30, 0.18);
-  color: #ffb340;
+  border-color: #2f9ae8;
+  background: #dceffc;
+  color: #111111;
+}
+
+.capture-toolbar button:disabled {
+  color: #b8b8b8;
+  cursor: default;
 }
 
 .tool-shape {
   display: block;
-  width: 14px;
-  height: 12px;
-  border: 1.5px solid currentColor;
+  width: 15px;
+  height: 13px;
+  border: 1.4px solid currentColor;
 }
 
 .tool-shape.ellipse {
@@ -1452,8 +1504,8 @@ onBeforeUnmount(() => {
 }
 
 .tool-line {
-  width: 15px;
-  height: 1.5px;
+  width: 16px;
+  height: 1.4px;
   background: currentColor;
   transform: rotate(-35deg);
 }
@@ -1478,26 +1530,29 @@ onBeforeUnmount(() => {
 
 .tool-divider {
   width: 1px;
-  height: 22px;
-  margin: 0 3px;
-  background: rgba(255, 255, 255, 0.1);
+  height: 19px;
+  margin: 0 2px;
+  background: #d2d2d2;
 }
 
 .color-presets {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 5px;
   padding: 0 3px;
+  flex-shrink: 0;
 }
 
 .color-presets button {
-  width: 13px;
-  height: 13px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  width: 15px;
+  height: 15px;
+  border: 1px solid #777777;
   border-radius: 50%;
 }
 
 .color-presets button.active {
-  box-shadow: 0 0 0 2px #1b1c20, 0 0 0 3px #f7931e;
+  border-color: #2f9ae8;
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 3px #2f9ae8;
 }
 
 .width-control {
@@ -1505,44 +1560,45 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 5px;
   padding: 0 4px;
-  color: #8e8d88;
-  font-size: 8px;
+  color: #555555;
+  font-size: 9px;
+  flex-shrink: 0;
 }
 
 .width-control input {
-  width: 52px;
-  accent-color: #f7931e;
+  width: 72px;
+  accent-color: #2f9ae8;
 }
 
 .toolbar-select {
-  height: 25px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
-  background: #24252a;
-  color: #ddd9d1;
-  font-size: 8px;
+  height: 23px;
+  border: 1px solid #b8b8b8;
+  border-radius: 1px;
+  background: #ffffff;
+  color: #222222;
+  font-size: 9px;
 }
 
 .undo-mark {
-  font-size: 19px;
+  font-size: 18px;
   line-height: 1;
 }
 
-.capture-toolbar .tool-action {
-  width: auto;
-  padding: 0 10px;
-  font-size: 9px;
-  font-weight: 650;
+.capture-toolbar .toolbar-close:hover:not(:disabled) {
+  border-color: #e3a09a;
+  background: #fcecea;
 }
 
-.capture-toolbar .tool-action.secondary {
-  background: #28292e;
-  color: #dad7d0;
+.toolbar-options .tool-divider {
+  height: 18px;
 }
 
-.capture-toolbar .tool-action.primary {
-  background: #f7931e;
-  color: #1c1307;
+.toolbar-main .spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+  border-color: rgba(0, 0, 0, 0.18);
+  border-top-color: #2f9ae8;
 }
 
 .text-editor {
@@ -1616,9 +1672,10 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 7px;
   padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.13);
+  border: 1px solid rgba(126, 193, 238, 0.42);
   border-radius: 999px;
-  background: rgba(20, 21, 24, 0.88);
+  background: rgba(16, 18, 22, 0.94);
+  color: rgba(255, 255, 255, 0.94);
   font-size: 10px;
 }
 

@@ -116,7 +116,7 @@ export interface CaptureRect {
   height: number;
 }
 
-export type CaptureAction = "copy" | "save" | "pin";
+export type CaptureAction = "copy" | "save";
 
 export interface CompleteCaptureRequest {
   sessionId: string;

@@ -78,7 +78,7 @@ fn windows_frontmost_pid() -> Option<u32> {
     };
     unsafe {
         let window = GetForegroundWindow();
-        if window == 0 {
+        if window.is_null() {
             return None;
         }
         let mut pid = 0u32;
@@ -90,6 +90,7 @@ fn windows_frontmost_pid() -> Option<u32> {
 #[cfg(target_os = "windows")]
 fn windows_activate_pid(pid: u32) {
     use std::sync::atomic::{AtomicU32, Ordering};
+    use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetWindowThreadProcessId, IsWindowVisible, SetForegroundWindow,
     };
@@ -97,8 +98,8 @@ fn windows_activate_pid(pid: u32) {
     static TARGET_PID: AtomicU32 = AtomicU32::new(0);
     TARGET_PID.store(pid, Ordering::Relaxed);
 
-    unsafe extern "system" fn callback(window: isize, _: isize) -> i32 {
-        if !unsafe { IsWindowVisible(window) } {
+    unsafe extern "system" fn callback(window: HWND, _: isize) -> i32 {
+        if unsafe { IsWindowVisible(window) } == 0 {
             return 1;
         }
         let mut owner = 0u32;
@@ -127,6 +128,7 @@ fn windows_window_rects(
     display_height: f64,
     display_scale: f64,
 ) -> Vec<Rect> {
+    use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetClassNameW, GetWindowLongW, GetWindowRect, GetWindowTextLengthW,
         GetWindowThreadProcessId, IsIconic, IsWindowVisible, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
@@ -143,9 +145,9 @@ fn windows_window_rects(
         rectangles: Vec<Rect>,
     }
 
-    unsafe extern "system" fn callback(window: isize, parameter: isize) -> i32 {
+    unsafe extern "system" fn callback(window: HWND, parameter: isize) -> i32 {
         let context = unsafe { &mut *(parameter as *mut Context) };
-        if !unsafe { IsWindowVisible(window) } || unsafe { IsIconic(window) } {
+        if unsafe { IsWindowVisible(window) } == 0 || unsafe { IsIconic(window) } != 0 {
             return 1;
         }
         if unsafe { GetWindowTextLengthW(window) } == 0 {
