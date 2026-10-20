@@ -1,0 +1,300 @@
+name: Release
+
+run-name: "${{ startsWith(github.ref, 'refs/tags/') && format('Release {0}', github.ref_name) || 'Cache warm-up (main)' }}"
+
+on:
+  push:
+    tags:
+      - "v*"
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: "${{ startsWith(github.ref, 'refs/tags/') && 'Build' || 'Warm cache' }} ${{ matrix.platform }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-aarch64
+            os: macos-14
+            rust_targets: aarch64-apple-darwin
+            app_args: --target aarch64-apple-darwin --bundles app --ci
+            dmg_args: --target aarch64-apple-darwin --bundles dmg --ci
+            warm_args: --target aarch64-apple-darwin --ci --no-sign --no-bundle
+          - platform: windows-x64
+            os: windows-latest
+            rust_targets: x86_64-pc-windows-msvc
+            build_args: --bundles nsis --ci
+            warm_args: --ci --no-bundle
+
+    env:
+      YARN_REGISTRY: https://registry.npmmirror.com
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Exclude build paths from Windows Defender
+        if: runner.os == 'Windows'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}\src-tauri\target", "$env:RUNNER_TEMP", "$env:LOCALAPPDATA\Yarn"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Yarn
+        shell: bash
+        run: npm install --global yarn@1.22.22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: ${{ matrix.platform }}
+          prefix-key: v1-thin
+          cache-on-failure: true
+
+      - uses: actions/cache@v4
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          path: |
+            ~/Library/Caches/tauri
+            ~/AppData/Local/tauri
+          key: tauri-bundler-${{ runner.os }}-${{ hashFiles('src-tauri/tauri.conf.json') }}
+
+      - name: Install frontend dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Validate release version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          expected="${TAG_NAME#v}"
+          if [[ ! "$expected" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Tag must use v<semver>, got: ${TAG_NAME}" >&2
+            exit 1
+          fi
+          package_version="$(node -p "require('./package.json').version")"
+          tauri_version="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json', 'utf8')).version")"
+          cargo_version="$(sed -nE 's/^version = "([^"]+)"/\1/p' src-tauri/Cargo.toml | head -n 1)"
+          cargo_lock_version="$(awk '/^name = "s-tools"$/{getline; print; exit}' src-tauri/Cargo.lock | sed -E 's/^version = "([^"]+)"$/\1/')"
+          if [[ "$package_version" != "$expected" || "$tauri_version" != "$expected" || "$cargo_version" != "$expected" || "$cargo_lock_version" != "$expected" ]]; then
+            echo "Release version mismatch" >&2
+            exit 1
+          fi
+          if ! grep -qE "^## \[${expected}\]" CHANGELOG.md; then
+            echo "CHANGELOG.md 中缺少 ${expected} 的更新日志" >&2
+            exit 1
+          fi
+
+      - name: Run tests
+        if: matrix.platform == 'macos-aarch64'
+        run: yarn test
+
+      - name: Build Tauri bundle (warm cache)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        env:
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: yarn tauri build ${{ matrix.warm_args }}
+
+      - name: Build macOS app bundle
+        if: startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS'
+        env:
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: yarn tauri build ${{ matrix.app_args }}
+
+      - name: Verify macOS ad-hoc signature
+        if: startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -maxdepth 1 -type d -name 'S-Tools.app' -print -quit)"
+          test -n "$app_path"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$app_path"
+          signature="$("/usr/bin/codesign" -dv --verbose=4 "$app_path" 2>&1)"
+          printf '%s\n' "$signature" | grep -q '^Signature=adhoc$'
+          printf '%s\n' "$signature" | grep -q '^Identifier=cn.shakepeng.stools$'
+
+      - name: Collect macOS app archive
+        if: startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS'
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          app_path="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -maxdepth 1 -type d -name 'S-Tools.app' -print -quit)"
+          mkdir -p release
+          ditto -c -k --keepParent "$app_path" "release/S-Tools-${TAG_NAME}-macos-aarch64.app.zip"
+
+      - name: Build macOS DMG bundle
+        if: startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS'
+        env:
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: yarn tauri build ${{ matrix.dmg_args }}
+
+      - name: Collect macOS installer
+        if: startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS'
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          installer="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          mkdir -p release
+          cp "$installer" "release/S-Tools-${TAG_NAME}-macos-aarch64.dmg"
+
+      - name: Build Windows installer
+        if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Windows'
+        env:
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: yarn tauri build ${{ matrix.build_args }}
+
+      - name: Collect Windows installer
+        if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          $installer = Get-ChildItem src-tauri/target/release/bundle/nsis -File -Filter '*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'No Windows NSIS installer was produced' }
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          Copy-Item -LiteralPath $installer.FullName -Destination "release/S-Tools-$env:TAG_NAME-windows-x64-setup.exe"
+
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: release-${{ matrix.platform }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Validate release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$(find release-assets -maxdepth 1 -type f -name '*.app.zip' -print -quit)"
+          test -n "$(find release-assets -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$(find release-assets -maxdepth 1 -type f -name '*.exe' -print -quit)"
+
+      - name: Build release notes and manifests
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#v}"
+          notes="$(awk -v version="$version" '
+            $0 ~ "^## \\[" version "\\]" { inside = 1; next }
+            inside && /^## \[/ { exit }
+            inside { print }
+          ' CHANGELOG.md)"
+          test -n "${notes//[[:space:]]/}"
+
+          asset_win="S-Tools-${TAG_NAME}-windows-x64-setup.exe"
+          asset_mac="S-Tools-${TAG_NAME}-macos-aarch64.dmg"
+          asset_app="S-Tools-${TAG_NAME}-macos-aarch64.app.zip"
+          test -f "release-assets/${asset_win}"
+          test -f "release-assets/${asset_mac}"
+          test -f "release-assets/${asset_app}"
+
+          VERSION="$version" TAG_NAME="$TAG_NAME" NOTES="$notes" \
+            ASSET_WIN="$asset_win" ASSET_MAC="$asset_mac" ASSET_APP="$asset_app" \
+            python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+
+          def digest(path):
+              value = hashlib.sha256()
+              with open(path, "rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      value.update(chunk)
+              return value.hexdigest()
+
+          assets_dir = "release-assets"
+          win = os.environ["ASSET_WIN"]
+          mac = os.environ["ASSET_MAC"]
+          app = os.environ["ASSET_APP"]
+          legacy = {
+              "version": os.environ["VERSION"],
+              "tag": os.environ["TAG_NAME"],
+              "notes": os.environ["NOTES"],
+              "assets": {
+                  "windows-x64": win,
+                  "macos-aarch64": mac,
+              },
+          }
+          v2 = {
+              "version": os.environ["VERSION"],
+              "tag": os.environ["TAG_NAME"],
+              "notes": os.environ["NOTES"],
+              "assets": {
+                  "windows-x64": {"file": win, "sha256": digest(os.path.join(assets_dir, win))},
+                  "macos-aarch64": {"file": app, "sha256": digest(os.path.join(assets_dir, app))},
+              },
+              "manual": {
+                  "windows-x64": win,
+                  "macos-aarch64": mac,
+              },
+          }
+          for name, manifest in (("latest.json", legacy), ("latest-v2.json", v2)):
+              with open(os.path.join(assets_dir, name), "w", encoding="utf-8") as handle:
+                  json.dump(manifest, handle, ensure_ascii=False, indent=2)
+                  handle.write("\n")
+          PY
+
+          {
+            echo "## ${TAG_NAME} 更新内容"
+            echo
+            echo "$notes"
+            echo
+            echo "## 安装说明"
+            echo
+            echo "- macOS Apple Silicon：下载 DMG 安装，或使用 app.zip 免安装运行。当前版本为 ad-hoc 签名、未公证。"
+            echo "- Windows x64：下载 NSIS 安装包；如出现 SmartScreen，请选择“更多信息”后继续。"
+          } > RELEASE_BODY.md
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: S-Tools ${{ github.ref_name }}
+          body_path: RELEASE_BODY.md
+          files: release-assets/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

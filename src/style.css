@@ -1,0 +1,244 @@
+:root {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  color: #f5f3ee;
+  background: #111214;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --bg: #111214;
+  --bg-elevated: #18191d;
+  --bg-soft: #202126;
+  --bg-hover: #292a30;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --text: #f5f3ee;
+  --text-soft: #b8b6b0;
+  --text-muted: #777871;
+  --accent: #f7931e;
+  --accent-soft: rgba(247, 147, 30, 0.13);
+  --accent-strong: #ffb340;
+  --danger: #ff6b68;
+  --success: #52d39a;
+  --radius-lg: 22px;
+  --radius-md: 14px;
+  --radius-sm: 9px;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color: #18191d;
+  background: #f4f1ea;
+  --bg: #f4f1ea;
+  --bg-elevated: #fffdf8;
+  --bg-soft: #ece8df;
+  --bg-hover: #e3ded4;
+  --line: rgba(24, 25, 29, 0.09);
+  --line-strong: rgba(24, 25, 29, 0.16);
+  --text: #18191d;
+  --text-soft: #5f5d58;
+  --text-muted: #8a877f;
+  --accent-soft: rgba(247, 147, 30, 0.16);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(128, 128, 128, 0.35);
+  background-clip: padding-box;
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button,
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    background 160ms ease,
+    opacity 160ms ease;
+}
+
+.primary-button {
+  background: var(--accent);
+  color: #1d1408;
+  font-weight: 700;
+}
+
+.primary-button:hover {
+  background: var(--accent-strong);
+  transform: translateY(-1px);
+}
+
+.secondary-button {
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+}
+
+.secondary-button:hover,
+.ghost-button:hover {
+  background: var(--bg-hover);
+}
+
+.ghost-button {
+  background: transparent;
+  color: var(--text-soft);
+}
+
+.danger-button {
+  background: rgba(255, 107, 104, 0.13);
+  color: var(--danger);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none !important;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field > span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.text-input,
+.select-input,
+.textarea-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  transition: border-color 160ms ease;
+}
+
+.text-input,
+.select-input {
+  height: 40px;
+  padding: 0 12px;
+}
+
+.textarea-input {
+  min-height: 96px;
+  padding: 12px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.text-input:focus,
+.select-input:focus,
+.textarea-input:focus {
+  border-color: var(--accent);
+  outline: 0;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.badge.success {
+  background: rgba(82, 211, 154, 0.12);
+  color: var(--success);
+}
+
+.badge.accent {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

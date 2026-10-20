@@ -1,0 +1,685 @@
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+use base64::{engine::general_purpose::STANDARD, Engine};
+use image::{GenericImageView, ImageEncoder};
+use tauri::{
+    window::Color, AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
+    WebviewWindowBuilder,
+};
+use uuid::Uuid;
+use xcap::Monitor;
+
+use crate::{
+    config::data_dir,
+    models::{CaptureSession, CompleteCaptureRequest, CompleteCaptureResult, Rect},
+    storage::Storage,
+};
+
+pub const CAPTURE_WINDOW_LABEL: &str = "capture-overlay";
+
+pub fn ensure_capture_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window(CAPTURE_WINDOW_LABEL) {
+        return Ok(window);
+    }
+    WebviewWindowBuilder::new(
+        app,
+        CAPTURE_WINDOW_LABEL,
+        WebviewUrl::App("index.html?view=capture".into()),
+    )
+    .title("S-Tools 截图")
+    .inner_size(800.0, 600.0)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .background_color(Color(11, 12, 14, 255))
+    .visible(false)
+    .build()
+    .map_err(|error| format!("创建截图覆盖窗口失败：{error}"))
+}
+
+pub async fn start_capture(
+    app: AppHandle,
+    sessions: &Mutex<HashMap<String, CaptureSession>>,
+    ready: &Arc<Mutex<HashSet<String>>>,
+) -> Result<(), String> {
+    if !crate::selection::screen_recording_allowed() {
+        crate::selection::request_screen_recording();
+        return Err("需要授予屏幕录制权限后才能截图".into());
+    }
+    if !sessions
+        .lock()
+        .map_err(|_| "截图会话锁已损坏".to_string())?
+        .is_empty()
+    {
+        return Err("已有截图任务正在运行".into());
+    }
+    cleanup_stale_temp(&app)?;
+    let foreground_app_id = crate::platform::frontmost_app_id();
+    let window = match ensure_capture_window(&app) {
+        Ok(window) => window,
+        Err(error) => {
+            restore_foreground_app(foreground_app_id);
+            return Err(error);
+        }
+    };
+
+    let session_result: Result<CaptureSession, String> = async {
+        let cursor = app
+            .cursor_position()
+            .map_err(|error| format!("读取鼠标位置失败：{error}"))?;
+        let app_for_capture = app.clone();
+        let session = tauri::async_runtime::spawn_blocking(move || {
+            let mut monitors =
+                Monitor::all().map_err(|error| format!("读取显示器失败：{error}"))?;
+            let monitor_index = monitors
+                .iter()
+                .position(|monitor| monitor_contains_cursor(monitor, cursor.x, cursor.y))
+                .unwrap_or(0);
+            if monitors.is_empty() {
+                return Err("没有检测到可截图的显示器".to_string());
+            }
+            let monitor = monitors.swap_remove(monitor_index);
+            let monitor_id = monitor.id().unwrap_or_default();
+            let monitor_x = monitor.x().unwrap_or_default() as f64;
+            let monitor_y = monitor.y().unwrap_or_default() as f64;
+            let monitor_width = monitor.width().unwrap_or_default() as f64;
+            let monitor_height = monitor.height().unwrap_or_default() as f64;
+            if monitor_width <= 0.0 || monitor_height <= 0.0 {
+                return Err("显示器尺寸无效".to_string());
+            }
+            let backing_scale = monitor.scale_factor().unwrap_or(1.0).max(0.1) as f64;
+            let coordinates_are_physical = cfg!(target_os = "windows");
+            let (logical_x, logical_y, logical_width, logical_height) = logical_display_frame(
+                monitor_x,
+                monitor_y,
+                monitor_width,
+                monitor_height,
+                backing_scale,
+                coordinates_are_physical,
+            );
+            let (physical_x, physical_y) = physical_monitor_position(
+                monitor_x,
+                monitor_y,
+                backing_scale,
+                coordinates_are_physical,
+            );
+            let window_rects = crate::platform::window_rects_for_display(
+                monitor_x,
+                monitor_y,
+                monitor_width,
+                monitor_height,
+                backing_scale,
+            );
+
+            let session_id = Uuid::new_v4().to_string();
+            let directory = data_dir(&app_for_capture)?.join("captures").join("tmp");
+            std::fs::create_dir_all(&directory)
+                .map_err(|error| format!("创建截图临时目录失败：{error}"))?;
+            let image_path = directory.join(format!("{session_id}.png"));
+            #[cfg(target_os = "macos")]
+            if !capture_display_to_png(monitor_index + 1, &image_path) {
+                capture_monitor_to_png(&monitor, &image_path)?;
+            }
+            #[cfg(not(target_os = "macos"))]
+            capture_monitor_to_png(&monitor, &image_path)?;
+
+            Ok::<_, String>(CaptureSession {
+                session_id,
+                monitor_id,
+                display_id: monitor_id,
+                image_path: image_path.to_string_lossy().to_string(),
+                position_x: physical_x as f64,
+                position_y: physical_y as f64,
+                width: logical_width,
+                height: logical_height,
+                scale_factor: backing_scale,
+                screen_frame: Rect {
+                    x: logical_x,
+                    y: logical_y,
+                    width: logical_width,
+                    height: logical_height,
+                },
+                window_rects,
+                backing_scale,
+                foreground_app_id,
+            })
+        })
+        .await
+        .map_err(|error| format!("截图任务失败：{error}"))??;
+        Ok(session)
+    }
+    .await;
+
+    let session = match session_result {
+        Ok(session) => session,
+        Err(error) => {
+            restore_foreground_app(foreground_app_id);
+            return Err(error);
+        }
+    };
+
+    if let Err(error) = sessions
+        .lock()
+        .map(|mut sessions| {
+            sessions.insert(session.session_id.clone(), session.clone());
+        })
+        .map_err(|_| "截图会话锁已损坏".to_string())
+    {
+        let _ = std::fs::remove_file(&session.image_path);
+        restore_foreground_app(foreground_app_id);
+        return Err(error);
+    }
+    if let Err(error) = ready
+        .lock()
+        .map(|mut sessions| {
+            sessions.remove(&session.session_id);
+        })
+        .map_err(|_| "截图就绪状态锁已损坏".to_string())
+    {
+        let _ = sessions
+            .lock()
+            .map(|mut sessions| sessions.remove(&session.session_id));
+        let _ = std::fs::remove_file(&session.image_path);
+        restore_foreground_app(foreground_app_id);
+        return Err(error);
+    }
+
+    window
+        .set_position(PhysicalPosition::new(
+            session.position_x.round() as i32,
+            session.position_y.round() as i32,
+        ))
+        .ok();
+    window
+        .set_size(PhysicalSize::new(
+            (session.width * session.backing_scale).round() as u32,
+            (session.height * session.backing_scale).round() as u32,
+        ))
+        .ok();
+    start_ready_watchdog(app.clone(), session.session_id.clone(), ready.clone());
+    let _ = window.emit("capture://started", session);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn capture_display_to_png(display_number: usize, path: &Path) -> bool {
+    let display_argument = format!("-D{display_number}");
+    let Ok(status) = std::process::Command::new("/usr/sbin/screencapture")
+        .args(["-x", "-t", "png", display_argument.as_str()])
+        .arg(path)
+        .status()
+    else {
+        return false;
+    };
+    status.success()
+        && std::fs::metadata(path)
+            .map(|metadata| metadata.len() > 0)
+            .unwrap_or(false)
+}
+
+fn capture_monitor_to_png(monitor: &Monitor, path: &Path) -> Result<(), String> {
+    let image = monitor
+        .capture_image()
+        .map_err(|error| format!("捕获屏幕失败：{error}"))?;
+    let mut bytes = Vec::new();
+    image::codecs::png::PngEncoder::new_with_quality(
+        &mut bytes,
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::Sub,
+    )
+    .write_image(
+        image.as_raw(),
+        image.width(),
+        image.height(),
+        image::ExtendedColorType::Rgba8,
+    )
+    .map_err(|error| format!("编码截图失败：{error}"))?;
+    std::fs::write(path, bytes).map_err(|error| format!("保存临时截图失败：{error}"))
+}
+
+fn start_ready_watchdog(app: AppHandle, session_id: String, ready: Arc<Mutex<HashSet<String>>>) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let is_ready = ready
+            .lock()
+            .map(|sessions| sessions.contains(&session_id))
+            .unwrap_or(false);
+        if is_ready {
+            return;
+        }
+        if let Some(state) = app.try_state::<crate::AppState>() {
+            cleanup_session(&app, &state.sessions, &state.capture_ready, &session_id);
+        }
+        let _ = app.emit("app://toast", "截图界面加载失败，已自动关闭");
+    });
+}
+
+pub fn show_capture_window(
+    app: &AppHandle,
+    sessions: &Mutex<HashMap<String, CaptureSession>>,
+    ready: &Arc<Mutex<HashSet<String>>>,
+    session_id: &str,
+) -> Result<(), String> {
+    if !sessions
+        .lock()
+        .map_err(|_| "截图会话锁已损坏".to_string())?
+        .contains_key(session_id)
+    {
+        return Err("截图会话不存在或已过期".into());
+    }
+    let window = app
+        .get_webview_window(CAPTURE_WINDOW_LABEL)
+        .ok_or_else(|| "截图覆盖窗口不存在".to_string())?;
+    ready
+        .lock()
+        .map_err(|_| "截图就绪状态锁已损坏".to_string())?
+        .insert(session_id.to_string());
+    if let Err(error) = window.show().and_then(|_| window.set_focus()) {
+        if let Ok(mut sessions) = ready.lock() {
+            sessions.remove(session_id);
+        }
+        return Err(format!("显示截图窗口失败：{error}"));
+    }
+    Ok(())
+}
+
+pub async fn capture_image_bytes(
+    sessions: &Mutex<HashMap<String, CaptureSession>>,
+    session_id: &str,
+) -> Result<Vec<u8>, String> {
+    let path = sessions
+        .lock()
+        .map_err(|_| "截图会话锁已损坏".to_string())?
+        .get(session_id)
+        .map(|session| PathBuf::from(&session.image_path))
+        .ok_or_else(|| "截图会话不存在或已过期".to_string())?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|error| format!("读取截图图像失败：{error}"))?;
+    if bytes.len() > 60 * 1024 * 1024 {
+        return Err("截图图像过大".into());
+    }
+    Ok(bytes)
+}
+
+pub fn active_session(sessions: &Mutex<HashMap<String, CaptureSession>>) -> Option<CaptureSession> {
+    sessions
+        .lock()
+        .ok()
+        .and_then(|sessions| sessions.values().next().cloned())
+}
+
+pub fn cleanup_stale_temp(app: &AppHandle) -> Result<(), String> {
+    let directory = data_dir(app)?.join("captures").join("tmp");
+    if !directory.exists() {
+        return Ok(());
+    }
+    for entry in
+        std::fs::read_dir(&directory).map_err(|error| format!("读取截图临时目录失败：{error}"))?
+    {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+        if path.is_file() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    Ok(())
+}
+
+fn monitor_contains_cursor(monitor: &Monitor, cursor_x: f64, cursor_y: f64) -> bool {
+    let x = monitor.x().unwrap_or_default() as f64;
+    let y = monitor.y().unwrap_or_default() as f64;
+    let width = monitor.width().unwrap_or_default() as f64;
+    let height = monitor.height().unwrap_or_default() as f64;
+    let scale = monitor.scale_factor().unwrap_or(1.0) as f64;
+    #[cfg(target_os = "macos")]
+    let (cursor_x, cursor_y) = (cursor_x / scale, cursor_y / scale);
+    cursor_x >= x && cursor_x < x + width && cursor_y >= y && cursor_y < y + height
+}
+
+fn logical_display_frame(
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    scale: f64,
+    coordinates_are_physical: bool,
+) -> (f64, f64, f64, f64) {
+    if coordinates_are_physical {
+        (x / scale, y / scale, width / scale, height / scale)
+    } else {
+        (x, y, width, height)
+    }
+}
+
+fn physical_monitor_position(
+    x: f64,
+    y: f64,
+    scale: f64,
+    coordinates_are_physical: bool,
+) -> (i32, i32) {
+    if coordinates_are_physical {
+        (x.round() as i32, y.round() as i32)
+    } else {
+        ((x * scale).round() as i32, (y * scale).round() as i32)
+    }
+}
+
+fn restore_foreground_app(pid: Option<u32>) {
+    let Some(pid) = pid else {
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        crate::platform::activate_app(pid);
+    });
+}
+
+pub fn decode_and_store(
+    app: &AppHandle,
+    storage: &Storage,
+    sessions: &Mutex<HashMap<String, CaptureSession>>,
+    ready: &Arc<Mutex<HashSet<String>>>,
+    request: &CompleteCaptureRequest,
+    history_limit: usize,
+) -> Result<CompleteCaptureResult, String> {
+    if !sessions
+        .lock()
+        .map_err(|_| "截图会话锁已损坏".to_string())?
+        .contains_key(&request.session_id)
+    {
+        return Err("截图会话不存在或已过期".into());
+    }
+
+    let encoded = request
+        .data_url
+        .split_once(',')
+        .map(|(_, value)| value)
+        .ok_or_else(|| "截图数据格式无效".to_string())?;
+    let bytes = STANDARD
+        .decode(encoded)
+        .map_err(|error| format!("解码截图失败：{error}"))?;
+    if bytes.len() > 60 * 1024 * 1024 {
+        return Err("截图数据过大，无法保存".into());
+    }
+    if !matches!(request.action.as_str(), "copy" | "save" | "pin") {
+        return Err("未知截图操作".into());
+    }
+    let image =
+        image::load_from_memory(&bytes).map_err(|error| format!("读取截图图像失败：{error}"))?;
+    let (width, height) = image.dimensions();
+    let directory = data_dir(app)?.join("captures").join("history");
+    std::fs::create_dir_all(&directory).map_err(|error| format!("创建截图目录失败：{error}"))?;
+    let extension = "png";
+    let file_name = format!(
+        "S-Tools-{}.{}",
+        chrono::Local::now().format("%Y%m%d-%H%M%S-%3f"),
+        extension
+    );
+    let history_path = directory.join(&file_name);
+    image
+        .save_with_format(&history_path, image::ImageFormat::Png)
+        .map_err(|error| format!("保存截图失败：{error}"))?;
+
+    let mut message = "截图已保存到历史".to_string();
+    if request.action == "copy" {
+        copy_image(&image)?;
+        message = "截图已复制到剪贴板".into();
+    } else if request.action == "save" {
+        let output = if let Some(path) = request.save_path.as_deref() {
+            let path = PathBuf::from(path);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|error| format!("创建保存目录失败：{error}"))?;
+            }
+            std::fs::copy(&history_path, &path)
+                .map_err(|error| format!("保存截图失败：{error}"))?;
+            path
+        } else {
+            save_to_pictures(app, &history_path, &file_name)?
+        };
+        message = format!("截图已保存到 {}", output.display());
+    }
+
+    storage.add_screenshot(&history_path, width, height, history_limit)?;
+
+    if request.action == "pin" {
+        open_pin_window(app, &history_path, width, height)?;
+        message = "已创建贴图窗口".into();
+    }
+
+    cleanup_session(app, sessions, ready, &request.session_id);
+    Ok(CompleteCaptureResult {
+        path: history_path.to_string_lossy().to_string(),
+        message,
+    })
+}
+
+pub fn copy_image(image: &image::DynamicImage) -> Result<(), String> {
+    let rgba = image.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|error| format!("访问剪贴板失败：{error}"))?;
+    clipboard
+        .set_image(arboard::ImageData {
+            width: width as usize,
+            height: height as usize,
+            bytes: Cow::Owned(rgba.into_raw()),
+        })
+        .map_err(|error| format!("复制截图到剪贴板失败：{error}"))
+}
+
+pub fn copy_image_path(path: &Path) -> Result<(), String> {
+    let image = image::open(path)
+        .map_err(|error| format!("读取截图失败（{}）：{error}", path.display()))?;
+    copy_image(&image)
+}
+
+fn save_to_pictures(app: &AppHandle, source: &Path, file_name: &str) -> Result<PathBuf, String> {
+    let base = app
+        .path()
+        .picture_dir()
+        .unwrap_or_else(|_| data_dir(app).unwrap_or_default().join("exports"));
+    let directory = base.join("S-Tools");
+    std::fs::create_dir_all(&directory).map_err(|error| format!("创建图片目录失败：{error}"))?;
+    let target = unique_path(directory.join(file_name));
+    std::fs::copy(source, &target).map_err(|error| format!("保存截图到图片目录失败：{error}"))?;
+    Ok(target)
+}
+
+fn unique_path(path: PathBuf) -> PathBuf {
+    if !path.exists() {
+        return path;
+    }
+    let stem = path
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "S-Tools".into());
+    let extension = path
+        .extension()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "png".into());
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    for index in 2..1000 {
+        let candidate = parent.join(format!("{stem}-{index}.{extension}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    path
+}
+
+fn open_pin_window(
+    app: &AppHandle,
+    path: &Path,
+    image_width: u32,
+    image_height: u32,
+) -> Result<(), String> {
+    let id = Uuid::new_v4().to_string();
+    let label = format!("pin-{id}");
+    let url = format!(
+        "index.html?view=pin&path={}",
+        urlencoding(&path.to_string_lossy())
+    );
+    let max_width = 860.0;
+    let max_height = 700.0;
+    let ratio = (max_width / image_width as f64)
+        .min(max_height / image_height as f64)
+        .min(1.0);
+    let width = (image_width as f64 * ratio).max(120.0);
+    let height = (image_height as f64 * ratio).max(80.0);
+    let cursor = app.cursor_position().unwrap_or_default();
+    let monitor = app.monitor_from_point(cursor.x, cursor.y).ok().flatten();
+    let (position_x, position_y) = monitor
+        .map(|monitor| {
+            let scale = monitor.scale_factor();
+            let work = monitor.work_area();
+            (
+                (cursor.x / scale - width / 2.0).clamp(
+                    work.position.x as f64 / scale,
+                    (work.position.x as f64 + work.size.width as f64) / scale - width,
+                ),
+                (cursor.y / scale - height / 2.0).clamp(
+                    work.position.y as f64 / scale,
+                    (work.position.y as f64 + work.size.height as f64) / scale - height,
+                ),
+            )
+        })
+        .unwrap_or((120.0, 120.0));
+    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        .title("S-Tools 贴图")
+        .inner_size(width, height)
+        .position(position_x, position_y)
+        .resizable(true)
+        .maximizable(false)
+        .minimizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .transparent(true)
+        .shadow(false)
+        .build()
+        .map_err(|error| format!("创建贴图窗口失败：{error}"))?;
+    window
+        .show()
+        .map_err(|error| format!("显示贴图窗口失败：{error}"))?;
+    Ok(())
+}
+
+pub fn hide_capture_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(CAPTURE_WINDOW_LABEL) {
+        let _ = window.hide();
+    }
+}
+
+pub fn cleanup_session(
+    app: &AppHandle,
+    sessions: &Mutex<HashMap<String, CaptureSession>>,
+    ready: &Arc<Mutex<HashSet<String>>>,
+    session_id: &str,
+) {
+    let mut foreground_app_id = None;
+    if let Ok(mut map) = sessions.lock() {
+        if let Some(session) = map.remove(session_id) {
+            let _ = std::fs::remove_file(session.image_path);
+            foreground_app_id = session.foreground_app_id;
+        }
+    }
+    if let Ok(mut sessions) = ready.lock() {
+        sessions.remove(session_id);
+    }
+    hide_capture_window(app);
+    let _ = app.emit("capture://ended", ());
+    restore_foreground_app(foreground_app_id);
+}
+
+fn urlencoding(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires an interactive desktop with screen recording permission"]
+    fn capture_primary_monitor_smoke_test() {
+        let monitors = Monitor::all().expect("monitor list");
+        let monitor = monitors.first().expect("at least one monitor");
+        let image = monitor.capture_image().expect("capture screen");
+        assert!(image.width() > 0);
+        assert!(image.height() > 0);
+    }
+
+    #[tokio::test]
+    async fn capture_image_bytes_returns_raw_png_payload() {
+        let path = std::env::temp_dir().join(format!("stools-test-{}.png", Uuid::new_v4()));
+        let payload = b"not-a-real-png-but-valid-for-ipc-test";
+        std::fs::write(&path, payload).expect("write fixture");
+        let session_id = "test-session".to_string();
+        let sessions = Mutex::new(HashMap::from([(
+            session_id.clone(),
+            CaptureSession {
+                session_id: session_id.clone(),
+                monitor_id: 1,
+                display_id: 1,
+                image_path: path.to_string_lossy().to_string(),
+                position_x: 0.0,
+                position_y: 0.0,
+                width: 100.0,
+                height: 100.0,
+                scale_factor: 1.0,
+                screen_frame: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+                window_rects: Vec::new(),
+                backing_scale: 1.0,
+                foreground_app_id: None,
+            },
+        )]));
+        let data = capture_image_bytes(&sessions, &session_id)
+            .await
+            .expect("raw bytes");
+        assert_eq!(data, payload);
+        assert_eq!(
+            active_session(&sessions).map(|session| session.session_id),
+            Some(session_id)
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn converts_retina_monitor_frame_to_logical_window_geometry() {
+        assert_eq!(
+            logical_display_frame(0.0, 0.0, 2304.0, 1296.0, 2.0, false),
+            (0.0, 0.0, 2304.0, 1296.0)
+        );
+        assert_eq!(physical_monitor_position(0.0, 0.0, 2.0, false), (0, 0));
+    }
+
+    #[test]
+    fn converts_windows_scaled_monitor_frame_and_position() {
+        assert_eq!(
+            logical_display_frame(1920.0, 0.0, 2560.0, 1440.0, 1.25, true),
+            (1536.0, 0.0, 2048.0, 1152.0)
+        );
+        assert_eq!(
+            physical_monitor_position(1920.0, 0.0, 1.25, true),
+            (1920, 0)
+        );
+    }
+}

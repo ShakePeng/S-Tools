@@ -1,0 +1,35 @@
+{
+  "name": "s-tools",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "verify": "vue-tsc --noEmit && cargo check --manifest-path src-tauri/Cargo.toml",
+    "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:frontend": "vitest run",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:build:macos": "tauri build --target aarch64-apple-darwin --bundles dmg",
+    "tauri:build:windows": "tauri build --bundles nsis",
+    "icon": "tauri icon src-tauri/icons/app-source.png && node scripts/clean-mobile-icons.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.4",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5",
+    "@vitejs/plugin-vue": "^4.6.2",
+    "typescript": "~5.4.5",
+    "vite": "^4.5.14",
+    "vitest": "^0.34.6",
+    "vue-tsc": "^2.0.29"
+  },
+  "resolutions": {
+    "vite": "4.5.14"
+  }
+}
