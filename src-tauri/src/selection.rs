@@ -121,14 +121,11 @@ fn macos_copy_selected_text() -> Option<String> {
 #[cfg(target_os = "windows")]
 fn windows_copy_selected_text() -> Option<String> {
     use std::{
-        mem::size_of,
         thread,
-        time::{Duration, Instant},
-    };
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_C, VK_CONTROL,
+        time::Duration,
     };
 
+    wait_for_modifiers_released(Duration::from_millis(300));
     let mut clipboard = arboard::Clipboard::new().ok()?;
     let previous_text = clipboard.get_text().ok();
     let previous_image = clipboard.get_image().ok();
@@ -138,6 +135,55 @@ fn windows_copy_selected_text() -> Option<String> {
     }
     let sentinel = format!("__s_tools_clipboard_{}__", uuid::Uuid::new_v4());
     clipboard.set_text(&sentinel).ok()?;
+
+    if !send_copy_shortcut() {
+        restore_windows_clipboard(&mut clipboard, previous_text, previous_image);
+        return None;
+    }
+    let mut captured = wait_for_clipboard_text(
+        &mut clipboard,
+        &sentinel,
+        Duration::from_millis(450),
+    );
+    if captured.is_none() {
+        thread::sleep(Duration::from_millis(80));
+        if send_copy_shortcut() {
+            captured = wait_for_clipboard_text(
+                &mut clipboard,
+                &sentinel,
+                Duration::from_millis(300),
+            );
+        }
+    }
+    restore_windows_clipboard(&mut clipboard, previous_text, previous_image);
+    captured
+}
+
+#[cfg(target_os = "windows")]
+fn wait_for_modifiers_released(timeout: std::time::Duration) {
+    use std::{thread, time::Instant};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    };
+
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        let any_pressed = [VK_MENU, VK_CONTROL, VK_SHIFT, VK_LWIN, VK_RWIN]
+            .into_iter()
+            .any(|key| unsafe { GetAsyncKeyState(key as i32) } < 0);
+        if !any_pressed {
+            return;
+        }
+        thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn send_copy_shortcut() -> bool {
+    use std::mem::size_of;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_C, VK_CONTROL,
+    };
 
     #[allow(non_snake_case)]
     unsafe {
@@ -174,26 +220,28 @@ fn windows_copy_selected_text() -> Option<String> {
             time: 0,
             dwExtraInfo: 0,
         };
-        let sent = SendInput(4, inputs.as_ptr(), size_of::<INPUT>() as i32);
-        if sent != 4 {
-            restore_windows_clipboard(&mut clipboard, previous_text, previous_image);
-            return None;
-        }
+        SendInput(4, inputs.as_ptr(), size_of::<INPUT>() as i32) == 4
     }
+}
 
-    let deadline = Instant::now() + Duration::from_millis(800);
-    let mut captured = None;
+#[cfg(target_os = "windows")]
+fn wait_for_clipboard_text(
+    clipboard: &mut arboard::Clipboard,
+    sentinel: &str,
+    timeout: std::time::Duration,
+) -> Option<String> {
+    use std::{thread, time::Instant};
+
+    let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        thread::sleep(Duration::from_millis(20));
+        thread::sleep(std::time::Duration::from_millis(20));
         if let Ok(value) = clipboard.get_text() {
             if value != sentinel && !value.is_empty() {
-                captured = Some(value);
-                break;
+                return Some(value);
             }
         }
     }
-    restore_windows_clipboard(&mut clipboard, previous_text, previous_image);
-    captured
+    None
 }
 
 #[cfg(target_os = "windows")]

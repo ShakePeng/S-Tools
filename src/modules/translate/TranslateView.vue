@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { listen } from "@tauri-apps/api/event";
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import AppIcon from "../../components/AppIcon.vue";
 import UiIcon from "../../components/UiIcon.vue";
 import { inferTargetLanguage, truncate } from "../../lib/format";
 import { bootstrap, call, isTauri } from "../../lib/ipc";
 import type {
-  AppSettings,
   PendingTranslation,
   ProviderResult,
   ProviderView,
@@ -23,12 +22,11 @@ const text = ref("");
 const notice = ref("");
 const loading = ref(true);
 const providers = ref<ProviderView[]>([]);
-const selectedProviderIds = ref<string[]>([]);
-const settings = ref<AppSettings | null>(null);
 const targetLang = ref("auto");
 const results = reactive<Record<string, ResultState>>({});
 const activeRequestId = ref("");
-const composerFocused = ref(false);
+const editingSource = ref(false);
+const sourceInput = ref<HTMLTextAreaElement | null>(null);
 let unlistenSelection: (() => void) | undefined;
 
 const configuredProviders = computed(() =>
@@ -36,12 +34,14 @@ const configuredProviders = computed(() =>
 );
 
 const resultList = computed(() =>
-  providers.value
-    .filter((provider) => selectedProviderIds.value.includes(provider.id))
-    .map((provider) => ({
-      provider,
-      state: results[provider.id] || { status: "idle", result: null, error: "" },
-    })),
+  configuredProviders.value.map((provider) => ({
+    provider,
+    state: results[provider.id] || { status: "idle", result: null, error: "" },
+  })),
+);
+
+const firstSuccess = computed(
+  () => resultList.value.find((item) => item.state.status == "success")?.state.result || null,
 );
 
 const isMac = navigator.platform.toLowerCase().includes("mac");
@@ -57,27 +57,28 @@ function targetFor(value: string): string {
   return inferTargetLanguage(value, targetLang.value);
 }
 
+async function focusSource() {
+  editingSource.value = true;
+  await nextTick();
+  sourceInput.value?.focus();
+}
+
 async function loadPending(pending?: PendingTranslation) {
+  loading.value = true;
   try {
     const info = pending || (await call<PendingTranslation>("get_pending_translation"));
     text.value = info.text || "";
     notice.value = info.notice || "";
+    editingSource.value = !text.value.trim();
     if (text.value.trim()) {
       await translateAll();
     }
   } catch (reason) {
     notice.value = reason instanceof Error ? reason.message : String(reason);
+    editingSource.value = true;
   } finally {
     loading.value = false;
-  }
-}
-
-function toggleProvider(providerId: string) {
-  if (selectedProviderIds.value.includes(providerId)) {
-    if (selectedProviderIds.value.length == 1) return;
-    selectedProviderIds.value = selectedProviderIds.value.filter((id) => id != providerId);
-  } else {
-    selectedProviderIds.value = [...selectedProviderIds.value, providerId];
+    if (!text.value.trim()) await focusSource();
   }
 }
 
@@ -105,13 +106,12 @@ async function translateProvider(provider: ProviderView, requestId: string) {
 async function translateAll() {
   const value = text.value.trim();
   if (!value) {
-    notice.value = "请输入或选中需要翻译的文本";
+    notice.value = "请选择或输入需要翻译的文本";
+    await focusSource();
     return;
   }
-  if (!selectedProviderIds.value.length) {
-    notice.value = configuredProviders.value.length
-      ? "请至少选择一个翻译服务"
-      : "请先在设置中配置并启用至少一个翻译服务";
+  if (!configuredProviders.value.length) {
+    notice.value = "请先在翻译插件中配置并启用至少一个服务";
     return;
   }
   if (activeRequestId.value) {
@@ -120,10 +120,9 @@ async function translateAll() {
   notice.value = "";
   const requestId = crypto.randomUUID();
   activeRequestId.value = requestId;
-  const selected = providers.value.filter((provider) =>
-    selectedProviderIds.value.includes(provider.id),
+  await Promise.all(
+    configuredProviders.value.map((provider) => translateProvider(provider, requestId)),
   );
-  await Promise.all(selected.map((provider) => translateProvider(provider, requestId)));
 }
 
 async function retry(provider: ProviderView) {
@@ -158,10 +157,9 @@ function onKeydown(event: KeyboardEvent) {
     close();
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() == "c" && !window.getSelection()?.toString()) {
-    const success = resultList.value.find((item) => item.state.status == "success");
-    if (success) {
+    if (firstSuccess.value) {
       event.preventDefault();
-      copyResult(success.state.result);
+      copyResult(firstSuccess.value);
     }
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() == "r") {
@@ -174,15 +172,14 @@ onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
   try {
     const data = await bootstrap();
-    settings.value = data.settings;
     targetLang.value = data.settings.targetLang;
     providers.value = data.providers;
-    selectedProviderIds.value = configuredProviders.value.map((provider) => provider.id);
     for (const provider of configuredProviders.value) ensureResult(provider.id);
     await loadPending();
   } catch (reason) {
     notice.value = reason instanceof Error ? reason.message : String(reason);
     loading.value = false;
+    await focusSource();
   }
 
   if (isTauri()) {
@@ -201,133 +198,140 @@ onBeforeUnmount(() => {
 <template>
   <main class="translate-window">
     <header class="translate-head" data-tauri-drag-region>
-      <div class="brand" data-tauri-drag-region>
-        <AppIcon :size="30" />
+      <div class="popover-brand" data-tauri-drag-region>
+        <AppIcon :size="28" />
         <div>
-          <strong>S-Tools</strong>
-          <span>划词翻译</span>
+          <strong>划词翻译</strong>
+          <span>{{ isMac ? "⌥ D" : "Alt D" }} · 自动翻译</span>
         </div>
       </div>
       <div class="head-actions">
-        <span class="badge"><UiIcon name="keyboard" :size="12" /> Esc 关闭</span>
-        <button class="icon-button" title="设置翻译服务" @click="openProviderSettings">
-          <UiIcon name="settings" />
+        <label class="target-picker">
+          <UiIcon name="language" :size="13" />
+          <select v-model="targetLang" @change="translateAll">
+            <option value="auto">自动</option>
+            <option value="zh-CN">简中</option>
+            <option value="zh-TW">繁中</option>
+            <option value="en">英语</option>
+            <option value="ja">日语</option>
+            <option value="ko">韩语</option>
+          </select>
+        </label>
+        <button class="icon-button" title="翻译设置" @click="openProviderSettings">
+          <UiIcon name="settings" :size="16" />
         </button>
         <button class="icon-button" title="关闭" @click="close">
-          <UiIcon name="close" />
+          <UiIcon name="close" :size="16" />
         </button>
       </div>
     </header>
 
-    <section class="source-panel">
-      <textarea
-        v-model="text"
-        class="source-input"
-        :class="{ focused: composerFocused }"
-        :placeholder="loading ? '正在读取选中文本…' : '选中文本，或直接在这里输入…'"
-        @focus="composerFocused = true"
-        @blur="composerFocused = false"
-        @keydown.meta.enter.prevent="translateAll"
-        @keydown.ctrl.enter.prevent="translateAll"
-      ></textarea>
-      <div class="source-foot">
-        <span>{{ text.length }} 字符</span>
-        <div>
-          <label class="language-picker">
-            <UiIcon name="language" :size="14" />
-            <select v-model="targetLang">
-              <option value="auto">自动目标</option>
-              <option value="zh-CN">简体中文</option>
-              <option value="zh-TW">繁体中文</option>
-              <option value="en">英语</option>
-              <option value="ja">日语</option>
-              <option value="ko">韩语</option>
-            </select>
-          </label>
-          <button class="translate-button" :disabled="!text.trim()" @click="translateAll">
-            <UiIcon name="translate" :size="15" />
-            {{ isMac ? "⌘ ↵" : "Ctrl ↵" }}
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <section v-if="configuredProviders.length" class="provider-strip">
-      <span>对照服务</span>
-      <button
-        v-for="provider in configuredProviders"
-        :key="provider.id"
-        :class="['provider-chip', { active: selectedProviderIds.includes(provider.id) }]"
-        @click="toggleProvider(provider.id)"
-      >
-        <span :class="{ dot: true, active: selectedProviderIds.includes(provider.id) }"></span>
-        {{ provider.name }}
-      </button>
-    </section>
-    <section v-else class="provider-empty">
-      <UiIcon name="provider" />
-      <span>还没有可用的翻译服务</span>
-      <button class="ghost-button" @click="openProviderSettings">现在配置</button>
-    </section>
-
-    <div v-if="notice" class="notice">
-      <UiIcon name="alert" :size="15" />
-      {{ notice }}
+    <div v-if="loading" class="loading-row">
+      <span class="spinner"></span>
+      正在读取选中文本…
     </div>
 
-    <section class="results" :class="{ single: resultList.length == 1 }">
-      <article v-for="{ provider, state } in resultList" :key="provider.id" class="result-card">
-        <div class="result-head">
-          <div class="provider-name">
-            <span class="provider-mark">{{ provider.name.slice(0, 1) }}</span>
-            <div>
-              <strong>{{ provider.name }}</strong>
-              <span v-if="state.result">
-                {{ state.result.detectedLang || "自动" }} → {{ targetFor(text) }} ·
-                {{ state.result.elapsedMs }}ms
-              </span>
-              <span v-else>{{ provider.model || provider.kind }}</span>
+    <template v-else>
+      <section v-if="editingSource" class="source-panel">
+        <textarea
+          ref="sourceInput"
+          v-model="text"
+          class="source-input"
+          placeholder="未读取到选中文本，可在这里手动输入…"
+          @keydown.meta.enter.prevent="translateAll"
+          @keydown.ctrl.enter.prevent="translateAll"
+        ></textarea>
+        <div class="source-actions">
+          <span>{{ text.length }} 字符</span>
+          <div>
+            <button
+              v-if="text.trim()"
+              class="ghost-button compact"
+              @click="editingSource = false"
+            >
+              收起
+            </button>
+            <button class="translate-button" :disabled="!text.trim()" @click="translateAll">
+              <UiIcon name="translate" :size="14" />
+              翻译
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section v-else class="source-preview" @dblclick="focusSource">
+        <p>{{ truncate(text, 220) }}</p>
+        <button class="ghost-button compact" @click="focusSource">编辑原文</button>
+      </section>
+
+      <div v-if="notice" class="notice">
+        <UiIcon name="alert" :size="14" />
+        {{ notice }}
+      </div>
+
+      <section v-if="configuredProviders.length" class="results">
+        <article v-for="{ provider, state } in resultList" :key="provider.id" class="result-card">
+          <div class="result-head">
+            <div class="provider-name">
+              <span class="provider-mark">{{ provider.name.slice(0, 1) }}</span>
+              <div>
+                <strong>{{ provider.name }}</strong>
+                <span v-if="state.result">
+                  {{ state.result.detectedLang || "自动" }} → {{ targetFor(text) }} ·
+                  {{ state.result.elapsedMs }}ms
+                </span>
+                <span v-else>{{ provider.model || provider.kind }}</span>
+              </div>
+            </div>
+            <div class="result-actions">
+              <button
+                v-if="state.status == 'success'"
+                class="icon-button"
+                title="复制译文"
+                @click="copyResult(state.result)"
+              >
+                <UiIcon name="copy" :size="15" />
+              </button>
+              <button
+                v-if="state.status == 'error'"
+                class="icon-button"
+                title="重试"
+                @click="retry(provider)"
+              >
+                <UiIcon name="update" :size="15" />
+              </button>
             </div>
           </div>
-          <div class="result-actions">
-            <button
-              v-if="state.status == 'success'"
-              class="icon-button"
-              title="复制译文"
-              @click="copyResult(state.result)"
-            >
-              <UiIcon name="copy" :size="16" />
-            </button>
-            <button
-              v-if="state.status == 'error'"
-              class="icon-button"
-              title="重试"
-              @click="retry(provider)"
-            >
-              <UiIcon name="update" :size="16" />
-            </button>
-          </div>
-        </div>
 
-        <div v-if="state.status == 'loading'" class="result-loading">
-          <span class="spinner"></span>
-          <span>翻译中…</span>
+          <div v-if="state.status == 'loading'" class="result-loading">
+            <span class="spinner"></span>
+            翻译中…
+          </div>
+          <div v-else-if="state.status == 'error'" class="result-error">
+            <UiIcon name="alert" :size="15" />
+            <span>{{ state.error }}</span>
+          </div>
+          <p v-else-if="state.result" class="result-text">{{ state.result.translatedText }}</p>
+          <p v-else class="result-placeholder">等待翻译</p>
+        </article>
+      </section>
+
+      <section v-else class="provider-empty">
+        <UiIcon name="provider" :size="20" />
+        <div>
+          <strong>还没有可用的翻译服务</strong>
+          <span>先在翻译插件中完成配置并启用服务。</span>
         </div>
-        <div v-else-if="state.status == 'error'" class="result-error">
-          <UiIcon name="alert" :size="16" />
-          <span>{{ state.error }}</span>
-        </div>
-        <p v-else-if="state.result" class="result-text">{{ state.result.translatedText }}</p>
-        <p v-else class="result-placeholder">等待翻译</p>
-      </article>
-    </section>
+        <button class="ghost-button compact" @click="openProviderSettings">去配置</button>
+      </section>
+    </template>
 
     <footer class="translate-foot">
-      <span>
-        <UiIcon name="shield" :size="13" />
-        文本只会发送到已选中的服务
-      </span>
-      <button class="ghost-button" @click="close">关闭窗口</button>
+      <span>Esc 关闭 · 点击外部隐藏</span>
+      <button v-if="firstSuccess" class="ghost-button compact" @click="copyResult(firstSuccess)">
+        <UiIcon name="copy" :size="13" />
+        复制译文
+      </button>
     </footer>
   </main>
 </template>
@@ -340,24 +344,26 @@ onBeforeUnmount(() => {
   height: 100%;
   overflow: hidden;
   border: 1px solid var(--line-strong);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--bg-elevated) 97%, transparent);
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-elevated) 98%, transparent);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
 }
 
 .translate-head {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  gap: 10px;
+  min-height: 46px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--line);
 }
 
-.brand,
+.popover-brand,
 .head-actions,
-.source-foot,
-.source-foot > div,
-.provider-strip,
+.source-actions,
+.source-actions > div,
 .provider-name,
 .result-head,
 .result-actions,
@@ -366,38 +372,59 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
-.brand {
-  gap: 9px;
+.popover-brand {
+  min-width: 0;
+  gap: 8px;
 }
 
-.brand strong,
-.brand span {
+.popover-brand strong,
+.popover-brand span {
   display: block;
 }
 
-.brand strong {
-  font-size: 12px;
+.popover-brand strong {
+  font-size: 11px;
 }
 
-.brand span {
+.popover-brand span {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 8px;
 }
 
 .head-actions {
-  gap: 5px;
+  gap: 3px;
+}
+
+.target-picker {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 27px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text-soft);
+}
+
+.target-picker select {
+  max-width: 60px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 9px;
 }
 
 .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 27px;
+  height: 27px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-soft);
   cursor: pointer;
@@ -408,194 +435,156 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
-.source-panel {
-  margin: 14px 14px 0;
-  padding: 14px;
+.loading-row {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.source-panel,
+.source-preview {
+  flex: 0 0 auto;
+  margin: 8px 10px 0;
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: 9px;
   background: var(--bg);
+}
+
+.source-panel {
+  padding: 7px 9px;
 }
 
 .source-input {
   width: 100%;
-  min-height: 92px;
-  max-height: 170px;
+  min-height: 58px;
+  max-height: 104px;
   padding: 0;
   border: 0;
   outline: 0;
-  resize: vertical;
+  resize: none;
   background: transparent;
   color: var(--text);
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .source-input::placeholder {
   color: var(--text-muted);
 }
 
-.source-foot {
+.source-actions {
   justify-content: space-between;
-  gap: 16px;
-  margin-top: 9px;
+  gap: 8px;
+  margin-top: 5px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 8px;
 }
 
-.source-foot > div {
-  gap: 9px;
-}
-
-.language-picker {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-soft);
-}
-
-.language-picker select {
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text-soft);
-  font-size: 10px;
+.source-actions > div {
+  gap: 5px;
 }
 
 .translate-button {
   display: flex;
   align-items: center;
-  gap: 5px;
-  height: 29px;
-  padding: 0 10px;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--accent);
   color: #1c1307;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   cursor: pointer;
 }
 
-.provider-strip,
-.provider-empty {
-  margin: 10px 14px 0;
+.translate-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
-.provider-strip {
-  gap: 8px;
-  overflow-x: auto;
-}
-
-.provider-strip > span {
-  flex: 0 0 auto;
-  color: var(--text-muted);
-  font-size: 9px;
-}
-
-.provider-chip {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  height: 25px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 9px;
-  cursor: pointer;
-}
-
-.provider-chip.active {
-  border-color: rgba(247, 147, 30, 0.28);
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-}
-
-.dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-
-.dot.active {
-  background: var(--accent);
-}
-
-.provider-empty {
+.source-preview {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
-  border: 1px dashed var(--line-strong);
-  border-radius: 10px;
-  color: var(--text-muted);
+  padding: 7px 9px;
+}
+
+.source-preview p {
+  display: -webkit-box;
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-soft);
   font-size: 10px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
-.provider-empty .ghost-button {
-  min-height: 25px;
-  margin-left: auto;
+.ghost-button.compact {
+  min-height: 24px;
   padding: 0 7px;
-  font-size: 9px;
+  font-size: 8px;
 }
 
 .notice {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 7px;
-  margin: 10px 14px 0;
-  padding: 9px 11px;
-  border-radius: 9px;
+  gap: 6px;
+  margin: 7px 10px 0;
+  padding: 7px 9px;
+  border-radius: 7px;
   background: rgba(255, 107, 104, 0.09);
   color: var(--danger);
-  font-size: 9px;
+  font-size: 8px;
 }
 
 .results {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
+  display: flex;
   min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
   overflow-y: auto;
-  padding: 11px 14px;
-}
-
-.results.single {
-  grid-template-columns: 1fr;
+  padding: 8px 10px;
 }
 
 .result-card {
-  display: flex;
-  flex-direction: column;
-  min-height: 150px;
-  padding: 13px;
+  flex: 0 0 auto;
+  padding: 9px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 9px;
   background: var(--bg);
 }
 
 .result-head {
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .provider-name {
-  gap: 8px;
+  min-width: 0;
+  gap: 7px;
 }
 
 .provider-mark {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 27px;
-  height: 27px;
-  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
   background: var(--bg-soft);
   color: var(--accent-strong);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 750;
 }
 
@@ -608,77 +597,94 @@ onBeforeUnmount(() => {
   font-size: 10px;
 }
 
-.provider-name div > span {
-  margin-top: 2px;
+.provider-name span {
+  margin-top: 1px;
   color: var(--text-muted);
   font-size: 8px;
 }
 
 .result-actions {
-  gap: 2px;
-}
-
-.result-actions .icon-button {
-  width: 26px;
-  height: 26px;
-}
-
-.result-text {
-  margin: 13px 0 0;
-  overflow-y: auto;
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.75;
-  white-space: pre-wrap;
-}
-
-.result-placeholder {
-  margin: 18px 0 0;
-  color: var(--text-muted);
-  font-size: 10px;
+  gap: 1px;
 }
 
 .result-loading,
 .result-error {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 18px;
+  gap: 6px;
+  margin-top: 7px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 9px;
 }
 
 .result-error {
-  align-items: flex-start;
   color: var(--danger);
-  line-height: 1.5;
+}
+
+.result-text {
+  margin: 7px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.result-placeholder {
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.provider-empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  margin: 8px 10px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 9px;
+  color: var(--text-muted);
+}
+
+.provider-empty div {
+  min-width: 0;
+  flex: 1;
+}
+
+.provider-empty strong,
+.provider-empty span {
+  display: block;
+}
+
+.provider-empty strong {
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.provider-empty span {
+  margin-top: 2px;
+  font-size: 8px;
 }
 
 .translate-foot {
+  flex: 0 0 auto;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: auto;
-  padding: 9px 14px 11px;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 10px;
   border-top: 1px solid var(--line);
   color: var(--text-muted);
   font-size: 8px;
 }
 
-.translate-foot > span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.translate-foot .ghost-button {
-  min-height: 24px;
-  padding: 0 5px;
-  font-size: 8px;
-}
-
-@media (max-width: 640px) {
-  .results {
-    grid-template-columns: 1fr;
-  }
+.result-loading .spinner,
+.loading-row .spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+  border-color: rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent);
 }
 </style>

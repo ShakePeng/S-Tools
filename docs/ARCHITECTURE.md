@@ -58,6 +58,8 @@ interface TranslationRequest {
 
 凭据输入只进入系统凭据库，`ProviderView` 仅返回 `configured` 布尔值。
 
+翻译快捷键在释放时启动取词，避免 Windows 上 Alt/Ctrl 等修饰键干扰模拟复制。翻译窗口为鼠标附近的紧凑悬浮框，纵向展示所有已启用服务；右侧或下方空间不足时自动翻转，失去焦点后隐藏。未读取到选区时直接在悬浮框内提供手动输入。
+
 ## 截图接口
 
 `start_capture` 在 Rust 中：

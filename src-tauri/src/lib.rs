@@ -513,8 +513,8 @@ fn show_translation_window(app: &AppHandle, pending: &PendingTranslation) -> Res
             WebviewUrl::App("index.html?view=translate".into()),
         )
         .title("S-Tools 划词翻译")
-        .inner_size(700.0, 620.0)
-        .min_inner_size(560.0, 420.0)
+        .inner_size(440.0, 360.0)
+        .min_inner_size(360.0, 240.0)
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
@@ -548,25 +548,59 @@ fn position_translation_window<R: Runtime>(
         let work = monitor.work_area();
         let width = size.width as f64 / scale;
         let height = size.height as f64 / scale;
-        let monitor_left = work.position.x as f64 / scale;
-        let monitor_top = work.position.y as f64 / scale;
-        let monitor_right = (work.position.x as f64 + work.size.width as f64) / scale;
-        let monitor_bottom = (work.position.y as f64 + work.size.height as f64) / scale;
-        let cursor_x = cursor.x / scale;
-        let cursor_y = cursor.y / scale;
-        let x = (cursor_x + 14.0)
-            .min(monitor_right - width - 8.0)
-            .max(monitor_left + 8.0);
-        let y = (cursor_y + 18.0)
-            .min(monitor_bottom - height - 8.0)
-            .max(monitor_top + 8.0);
-        (x, y)
+        translation_window_position(
+            cursor.x / scale,
+            cursor.y / scale,
+            width,
+            height,
+            work.position.x as f64 / scale,
+            work.position.y as f64 / scale,
+            work.size.width as f64 / scale,
+            work.size.height as f64 / scale,
+        )
     } else {
         (120.0, 120.0)
     };
     window
         .set_position(tauri::LogicalPosition::new(x, y))
         .map_err(|error| format!("定位翻译窗口失败：{error}"))
+}
+
+fn translation_window_position(
+    cursor_x: f64,
+    cursor_y: f64,
+    window_width: f64,
+    window_height: f64,
+    work_x: f64,
+    work_y: f64,
+    work_width: f64,
+    work_height: f64,
+) -> (f64, f64) {
+    const GAP_X: f64 = 14.0;
+    const GAP_Y: f64 = 18.0;
+    const MARGIN: f64 = 8.0;
+
+    let left = work_x + MARGIN;
+    let top = work_y + MARGIN;
+    let right = work_x + work_width - MARGIN;
+    let bottom = work_y + work_height - MARGIN;
+    let max_x = (right - window_width).max(left);
+    let max_y = (bottom - window_height).max(top);
+
+    let preferred_x = cursor_x + GAP_X;
+    let x = if preferred_x + window_width <= right {
+        preferred_x
+    } else {
+        cursor_x - GAP_X - window_width
+    };
+    let preferred_y = cursor_y + GAP_Y;
+    let y = if preferred_y + window_height <= bottom {
+        preferred_y
+    } else {
+        cursor_y - GAP_Y - window_height
+    };
+
+    (x.clamp(left, max_x), y.clamp(top, max_y))
 }
 
 async fn open_translation_workflow(app: AppHandle) -> Result<(), String> {
@@ -602,6 +636,14 @@ fn ensure_translation_enabled(app: &AppHandle) -> Result<(), String> {
     } else {
         Err("划词翻译功能尚未开启，请先到工作台打开开关".into())
     }
+}
+
+fn should_start_translation(state: ShortcutState) -> bool {
+    state == ShortcutState::Released
+}
+
+fn should_start_capture(state: ShortcutState) -> bool {
+    state == ShortcutState::Pressed
 }
 
 fn ensure_screenshot_enabled(app: &AppHandle) -> Result<(), String> {
@@ -649,7 +691,7 @@ fn register_shortcuts(app: &AppHandle) -> Result<(), String> {
     if settings.translation_enabled {
         manager
             .on_shortcut(settings.hotkeys.translate.as_str(), |app, _, event| {
-                if event.state == ShortcutState::Pressed {
+                if should_start_translation(event.state) {
                     let handle = app.clone();
                     tauri::async_runtime::spawn(async move {
                         if let Err(error) = open_translation_workflow(handle.clone()).await {
@@ -663,7 +705,7 @@ fn register_shortcuts(app: &AppHandle) -> Result<(), String> {
     if settings.screenshot_enabled {
         manager
             .on_shortcut(settings.hotkeys.screenshot.as_str(), |app, _, event| {
-                if event.state == ShortcutState::Pressed {
+                if should_start_capture(event.state) {
                     let handle = app.clone();
                     tauri::async_runtime::spawn(async move {
                         let state = handle.state::<AppState>();
@@ -892,6 +934,43 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shortcut_events_use_release_for_translation_and_press_for_capture() {
+        assert!(!should_start_translation(ShortcutState::Pressed));
+        assert!(should_start_translation(ShortcutState::Released));
+        assert!(should_start_capture(ShortcutState::Pressed));
+        assert!(!should_start_capture(ShortcutState::Released));
+    }
+
+    #[test]
+    fn translation_window_flips_and_clamps_inside_work_area() {
+        assert_eq!(
+            translation_window_position(100.0, 100.0, 440.0, 360.0, 0.0, 0.0, 800.0, 600.0),
+            (114.0, 118.0)
+        );
+        assert_eq!(
+            translation_window_position(700.0, 500.0, 440.0, 360.0, 0.0, 0.0, 800.0, 600.0),
+            (246.0, 122.0)
+        );
+        assert_eq!(
+            translation_window_position(
+                -1700.0,
+                200.0,
+                440.0,
+                360.0,
+                -1920.0,
+                0.0,
+                1920.0,
+                1080.0,
+            ),
+            (-1686.0, 218.0)
+        );
+        assert_eq!(
+            translation_window_position(150.0, 100.0, 440.0, 360.0, 0.0, 0.0, 300.0, 200.0),
+            (8.0, 8.0)
+        );
+    }
 
     #[test]
     fn feature_switches_default_to_disabled() {
