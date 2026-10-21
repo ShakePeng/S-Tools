@@ -1,0 +1,54 @@
+docs/ARCHITECTURE.md
+  s_b3cfdcebc6c4ad::t_10ea7cc6c81298 103-104,108-109
+CHANGELOG.md
+  s_b3cfdcebc6c4ad::t_10ea7cc6c81298 5-12
+src-tauri/src/lib.rs
+  s_b3cfdcebc6c4ad::t_bfb1bc92ab9d10 56,63
+src-tauri/tauri.conf.json
+  s_b3cfdcebc6c4ad::t_bfb1bc92ab9d10 4
+src-tauri/Cargo.toml
+  s_b3cfdcebc6c4ad::t_bfb1bc92ab9d10 3
+src/lib/ipc.ts
+  s_b3cfdcebc6c4ad::t_bfb1bc92ab9d10 24
+package.json
+  s_b3cfdcebc6c4ad::t_bfb1bc92ab9d10 4,19-20
+scripts/macos-release-signing/s-tools-release-signing.cer
+  s_b3cfdcebc6c4ad::t_caac86737370fc 1-20
+scripts/trust-macos-release-signing.sh
+  s_b3cfdcebc6c4ad::t_e648fd42778f3f 21-26
+  s_b3cfdcebc6c4ad::t_a0db62032952e9 1-14,27-31,38
+  s_b3cfdcebc6c4ad::t_2c422d0778b6b6 15-20
+  s_b3cfdcebc6c4ad::t_a8d004c2383e7d 32-37
+  s_b3cfdcebc6c4ad::t_5da4849b42981c 39
+.github/workflows/release.yml
+  s_b3cfdcebc6c4ad::t_bfb1bc92ab9d10 41,83-121,165,174-178,180-187,189,191-196,348
+  s_b3cfdcebc6c4ad::t_b83777696b8a23 188,190
+README.md
+  s_b3cfdcebc6c4ad::t_10ea7cc6c81298 68-96,179,187
+src/shell/ShellView.vue
+  s_b3cfdcebc6c4ad::t_bfb1bc92ab9d10 311,658
+  s_b3cfdcebc6c4ad::t_e2bad5065e8fc3 696-697
+scripts/macos-dev-app/Info.plist
+  s_b3cfdcebc6c4ad::t_bfb1bc92ab9d10 22,24
+scripts/create-macos-release-signing.sh
+  s_b3cfdcebc6c4ad::t_a0db62032952e9 1-70,72-74
+  s_b3cfdcebc6c4ad::t_5da4849b42981c 71
+src-tauri/Cargo.lock
+  s_b3cfdcebc6c4ad::t_935be46dc57f73 4412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "536812ac620e2c2654db6da28261dab270359c52",
+  "prompts": {},
+  "sessions": {
+    "s_b3cfdcebc6c4ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c56-8d79-7120-a433-a9c3e003f3f3",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
