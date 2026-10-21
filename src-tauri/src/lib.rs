@@ -53,14 +53,14 @@ pub struct AppState {
 impl AppState {
     fn new(config: AppConfig) -> Result<Self, String> {
         let client = reqwest::Client::builder()
-            .user_agent("S-Tools/1.0.5")
+            .user_agent("S-Tools/1.0.6")
             .connect_timeout(Duration::from_secs(12))
             .timeout(Duration::from_secs(45))
             .pool_idle_timeout(Duration::from_secs(90))
             .build()
             .map_err(|error| format!("初始化网络客户端失败：{error}"))?;
         let direct_client = reqwest::Client::builder()
-            .user_agent("S-Tools/1.0.5")
+            .user_agent("S-Tools/1.0.6")
             .connect_timeout(Duration::from_secs(8))
             .timeout(Duration::from_secs(30))
             .pool_idle_timeout(Duration::from_secs(90))
@@ -499,6 +499,12 @@ fn permission_status() -> PermissionStatus {
 }
 
 fn show_main_window(app: &AppHandle, section: &str) -> Result<(), String> {
+    reveal_main_window(app)?;
+    let _ = app.emit("app://navigate", section);
+    Ok(())
+}
+
+fn reveal_main_window(app: &AppHandle) -> Result<(), String> {
     if let Some(onboarding) = app.get_webview_window("onboarding") {
         let _ = onboarding.close();
     }
@@ -507,7 +513,6 @@ fn show_main_window(app: &AppHandle, section: &str) -> Result<(), String> {
             .map_err(|error| format!("显示主窗口失败：{error}"))?;
         main.set_focus()
             .map_err(|error| format!("聚焦主窗口失败：{error}"))?;
-        let _ = app.emit("app://navigate", section);
     }
     Ok(())
 }
@@ -973,7 +978,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 ..
             } = event
             {
-                let _ = show_main_window(tray.app_handle(), "overview");
+                let _ = reveal_main_window(tray.app_handle());
             }
         });
     #[cfg(target_os = "macos")]
@@ -998,7 +1003,7 @@ fn start_update_loop(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ = show_main_window(app, "overview");
+            let _ = reveal_main_window(app);
         }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -1040,6 +1045,8 @@ pub fn run() {
 
             if !settings.has_completed_onboarding {
                 show_onboarding(&handle).map_err(|error| error.to_string())?;
+            } else {
+                reveal_main_window(&handle).map_err(|error| error.to_string())?;
             }
             start_update_loop(handle);
             Ok(())

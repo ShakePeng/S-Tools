@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeSection,
+  resolveInitialSection,
   resolveRequestedSection,
   visibleSectionItems,
 } from "./navigation";
@@ -35,5 +36,16 @@ describe("shell navigation", () => {
       }),
     ).toBe("translation");
     expect(resolveRequestedSection("updates", disabledPlugins)).toBe("settings");
+  });
+
+  it("restores the remembered section unless an explicit section is requested", () => {
+    const enabledPlugins = {
+      translationEnabled: true,
+      screenshotEnabled: true,
+    };
+
+    expect(resolveInitialSection(null, "screenshot", enabledPlugins)).toBe("screenshot");
+    expect(resolveInitialSection("settings", "screenshot", enabledPlugins)).toBe("settings");
+    expect(resolveInitialSection(null, "translation", disabledPlugins)).toBe("overview");
   });
 });

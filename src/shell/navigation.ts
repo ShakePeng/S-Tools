@@ -50,3 +50,11 @@ export function resolveRequestedSection(
   const requested = normalizeSection(value);
   return requested && isSectionVisible(requested, settings) ? requested : "overview";
 }
+
+export function resolveInitialSection(
+  requested: string | null | undefined,
+  remembered: string | null | undefined,
+  settings: Pick<AppSettings, "translationEnabled" | "screenshotEnabled">,
+): Section {
+  return resolveRequestedSection(requested || remembered, settings);
+}

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import AppIcon from "../components/AppIcon.vue";
 import HotkeyRecorder from "../components/HotkeyRecorder.vue";
 import ProviderLogo from "../components/ProviderLogo.vue";
@@ -23,12 +23,15 @@ import type {
 import {
   isSectionVisible,
   normalizeSection,
+  resolveInitialSection,
   resolveRequestedSection,
   visibleSectionItems,
   type Section,
 } from "./navigation";
 
+const SECTION_STORAGE_KEY = "s-tools.shell.section";
 const rawRequestedSection = new URLSearchParams(window.location.search).get("section");
+const rememberedSection = readRememberedSection();
 const section = ref<Section>("overview");
 const loading = ref(true);
 const data = ref<BootstrapData | null>(null);
@@ -71,6 +74,25 @@ const insecureBaseUrl = computed(
 );
 const visibleSections = computed(() => visibleSectionItems(settingsForm));
 
+function readRememberedSection(): string | null {
+  try {
+    return window.localStorage.getItem(SECTION_STORAGE_KEY);
+  } catch (reason) {
+    console.warn("读取主页面 Tab 失败", reason);
+    return null;
+  }
+}
+
+function rememberSection(value: Section) {
+  try {
+    window.localStorage.setItem(SECTION_STORAGE_KEY, value);
+  } catch (reason) {
+    console.warn("保存主页面 Tab 失败", reason);
+  }
+}
+
+watch(section, rememberSection, { flush: "sync" });
+
 function notify(message: string) {
   toast.value = message;
   window.clearTimeout(toastTimer);
@@ -89,7 +111,13 @@ async function load() {
   try {
     data.value = await bootstrap();
     syncSettingsForm(data.value.settings);
-    section.value = resolveRequestedSection(rawRequestedSection, data.value.settings);
+    const initialSection = resolveInitialSection(
+      rawRequestedSection,
+      rememberedSection,
+      data.value.settings,
+    );
+    section.value = initialSection;
+    rememberSection(initialSection);
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason);
   } finally {
@@ -308,7 +336,7 @@ onBeforeUnmount(() => {
         <div>
           <strong>
             S-Tools
-            <span class="brand-version">v{{ data?.version || "1.0.5" }}</span>
+            <span class="brand-version">v{{ data?.version || "1.0.6" }}</span>
           </strong>
           <span class="brand-subtitle">轻巧的桌面工具箱</span>
         </div>
@@ -655,7 +683,7 @@ onBeforeUnmount(() => {
             <div class="update-mark"><AppIcon :size="72" /></div>
             <div>
               <span class="eyebrow">S-TOOLS DESKTOP</span>
-              <h2>版本 {{ data?.version || "1.0.5" }}</h2>
+              <h2>版本 {{ data?.version || "1.0.6" }}</h2>
               <p>更新清单来自 GitHub Release，下载后会校验 SHA256 再安装。</p>
             </div>
             <button class="primary-button" :disabled="updateChecking" @click="checkUpdate">
