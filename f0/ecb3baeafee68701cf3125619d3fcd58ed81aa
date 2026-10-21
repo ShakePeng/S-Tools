@@ -1,0 +1,23 @@
+src/modules/translate/TranslateView.vue
+  s_b3cfdcebc6c4ad::t_87e7d3e8c6f2f1 100,124-126,129,147,149-158,165
+src/shell/ShellView.vue
+  s_b3cfdcebc6c4ad::t_ddb384ffc464e5 309-313,817-819,824-832,910
+CHANGELOG.md
+  s_b3cfdcebc6c4ad::t_6069dd2bcd576a 5,10-14,33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f0ecb3baeafee68701cf3125619d3fcd58ed81aa",
+  "prompts": {},
+  "sessions": {
+    "s_b3cfdcebc6c4ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c56-8d79-7120-a433-a9c3e003f3f3",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
