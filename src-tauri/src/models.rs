@@ -27,7 +27,6 @@ pub struct AppSettings {
     pub screenshot_enabled: bool,
     pub target_lang: String,
     pub launch_at_login: bool,
-    pub theme: String,
     pub has_completed_onboarding: bool,
 }
 
@@ -40,7 +39,6 @@ impl Default for AppSettings {
             screenshot_enabled: false,
             target_lang: "auto".into(),
             launch_at_login: false,
-            theme: "dark".into(),
             has_completed_onboarding: false,
         }
     }

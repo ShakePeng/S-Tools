@@ -1,5 +1,3 @@
-export type ThemeMode = "system" | "light" | "dark";
-
 export interface HotkeySettings {
   translate: string;
   screenshot: string;
@@ -12,7 +10,6 @@ export interface AppSettings {
   screenshotEnabled: boolean;
   targetLang: string;
   launchAtLogin: boolean;
-  theme: ThemeMode;
   hasCompletedOnboarding: boolean;
 }
 

@@ -29,7 +29,12 @@ const results = reactive<Record<string, ResultState>>({});
 const activeRequestId = ref("");
 const editingSource = ref(false);
 const sourceInput = ref<HTMLTextAreaElement | null>(null);
+const translateWindow = ref<HTMLElement | null>(null);
 let unlistenSelection: (() => void) | undefined;
+let resizeObserver: ResizeObserver | undefined;
+let resizeFrame = 0;
+let lastReportedHeight = 0;
+let previousBodyBackground = "";
 
 const configuredProviders = computed(() =>
   providers.value.filter((provider) => provider.enabled && provider.configured),
@@ -165,6 +170,26 @@ async function openAccessibilitySettings() {
   }
 }
 
+function scheduleTranslationResize() {
+  if (!isTauri()) return;
+  if (resizeFrame) cancelAnimationFrame(resizeFrame);
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = 0;
+    const element = translateWindow.value;
+    if (!element) return;
+    const height = Math.max(
+      220,
+      Math.min(560, Math.ceil(element.getBoundingClientRect().height)),
+    );
+    if (Math.abs(height - lastReportedHeight) < 1) return;
+    lastReportedHeight = height;
+    call("resize_translation_window", { height }).catch(() => {
+      // 尺寸变化失败时允许下一次内容变化继续重试。
+      lastReportedHeight = 0;
+    });
+  });
+}
+
 function onKeydown(event: KeyboardEvent) {
   if (event.key == "Escape") {
     event.preventDefault();
@@ -184,6 +209,8 @@ function onKeydown(event: KeyboardEvent) {
 
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
+  previousBodyBackground = document.body.style.background;
+  document.body.style.background = "transparent";
   try {
     const data = await bootstrap();
     targetLang.value = data.settings.targetLang;
@@ -202,19 +229,28 @@ onMounted(async () => {
       loadPending(event.payload);
     });
   }
+  await nextTick();
+  if (isTauri() && translateWindow.value) {
+    resizeObserver = new ResizeObserver(scheduleTranslationResize);
+    resizeObserver.observe(translateWindow.value);
+    scheduleTranslationResize();
+  }
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
   unlistenSelection?.();
+  resizeObserver?.disconnect();
+  if (resizeFrame) cancelAnimationFrame(resizeFrame);
+  document.body.style.background = previousBodyBackground;
 });
 </script>
 
 <template>
-  <main class="translate-window">
+  <main ref="translateWindow" class="translate-window">
     <header class="translate-head" data-tauri-drag-region>
       <div class="popover-brand" data-tauri-drag-region>
-        <AppIcon :size="28" />
+        <AppIcon :size="24" />
         <div>
           <strong>划词翻译</strong>
           <span>{{ isMac ? "⌥ D" : "Alt D" }} · 自动翻译</span>
@@ -359,12 +395,16 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: 100%;
+  height: auto;
   overflow: hidden;
   border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-elevated) 98%, transparent);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(43, 44, 48, 0.97), rgba(32, 33, 36, 0.99));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 14px 36px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(22px) saturate(1.12);
 }
 
 .translate-head {
@@ -372,9 +412,9 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  min-height: 46px;
-  padding: 8px 10px;
+  gap: 8px;
+  min-height: 52px;
+  padding: 9px 10px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -392,7 +432,11 @@ onBeforeUnmount(() => {
 
 .popover-brand {
   min-width: 0;
-  gap: 8px;
+  gap: 7px;
+}
+
+.popover-brand > div {
+  min-width: 0;
 }
 
 .popover-brand strong,
@@ -401,48 +445,54 @@ onBeforeUnmount(() => {
 }
 
 .popover-brand strong {
-  font-size: 11px;
+  font-size: 16px;
+  letter-spacing: -0.02em;
 }
 
 .popover-brand span {
-  margin-top: 2px;
+  margin-top: 1px;
+  overflow: hidden;
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .head-actions {
-  gap: 3px;
+  flex: 0 0 auto;
+  gap: 2px;
 }
 
 .target-picker {
   display: flex;
   align-items: center;
   gap: 3px;
-  height: 27px;
-  padding: 0 5px;
+  height: 28px;
+  padding: 0 6px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
   color: var(--text-soft);
 }
 
 .target-picker select {
-  max-width: 60px;
+  max-width: 54px;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--text-soft);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 27px;
-  height: 27px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-soft);
   cursor: pointer;
@@ -455,39 +505,39 @@ onBeforeUnmount(() => {
 
 .loading-row {
   display: flex;
-  flex: 1;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  min-height: 110px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .source-panel,
 .source-preview {
   flex: 0 0 auto;
-  margin: 8px 10px 0;
+  margin: 10px 10px 0;
   border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--bg);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .source-panel {
-  padding: 7px 9px;
+  padding: 10px;
 }
 
 .source-input {
   width: 100%;
-  min-height: 58px;
-  max-height: 104px;
+  min-height: 76px;
+  max-height: 132px;
   padding: 0;
   border: 0;
   outline: 0;
   resize: none;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .source-input::placeholder {
@@ -497,9 +547,9 @@ onBeforeUnmount(() => {
 .source-actions {
   justify-content: space-between;
   gap: 8px;
-  margin-top: 5px;
+  margin-top: 8px;
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .source-actions > div {
@@ -510,13 +560,13 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 26px;
-  padding: 0 8px;
+  height: 30px;
+  padding: 0 11px;
   border: 0;
-  border-radius: 7px;
-  background: var(--accent);
-  color: #1c1307;
-  font-size: 9px;
+  border-radius: 8px;
+  background: var(--text);
+  color: #18181a;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -530,7 +580,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 9px;
+  padding: 10px;
 }
 
 .source-preview p {
@@ -540,29 +590,31 @@ onBeforeUnmount(() => {
   margin: 0;
   overflow: hidden;
   color: var(--text-soft);
-  font-size: 10px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.55;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
 .ghost-button.compact {
-  min-height: 24px;
-  padding: 0 7px;
-  font-size: 8px;
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
 }
 
 .notice {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
-  margin: 7px 10px 0;
-  padding: 7px 9px;
-  border-radius: 7px;
-  background: rgba(255, 107, 104, 0.09);
+  gap: 7px;
+  margin: 9px 10px 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(248, 113, 113, 0.16);
+  border-radius: 9px;
+  background: rgba(248, 113, 113, 0.1);
   color: var(--danger);
-  font-size: 8px;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .notice > span {
@@ -584,20 +636,19 @@ onBeforeUnmount(() => {
 
 .results {
   display: flex;
-  min-height: 0;
-  flex: 1;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  max-height: 300px;
   overflow-y: auto;
-  padding: 8px 10px;
+  padding: 10px;
 }
 
 .result-card {
   flex: 0 0 auto;
-  padding: 9px;
+  padding: 11px;
   border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--bg);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .result-head {
@@ -607,19 +658,19 @@ onBeforeUnmount(() => {
 
 .provider-name {
   min-width: 0;
-  gap: 7px;
+  gap: 8px;
 }
 
 .provider-mark {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   background: var(--bg-soft);
   color: var(--accent-strong);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 750;
 }
 
@@ -629,13 +680,13 @@ onBeforeUnmount(() => {
 }
 
 .provider-name strong {
-  font-size: 10px;
+  font-size: 14px;
 }
 
 .provider-name span {
-  margin-top: 1px;
+  margin-top: 2px;
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .result-actions {
@@ -647,9 +698,10 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 7px;
+  margin-top: 9px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .result-error {
@@ -657,29 +709,29 @@ onBeforeUnmount(() => {
 }
 
 .result-text {
-  margin: 7px 0 0;
+  margin: 9px 0 0;
   color: var(--text);
-  font-size: 12px;
-  line-height: 1.65;
+  font-size: 14px;
+  line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .result-placeholder {
-  margin: 7px 0 0;
+  margin: 9px 0 0;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .provider-empty {
-  display: flex;
-  flex: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  margin: 8px 10px;
-  padding: 12px;
+  gap: 10px;
+  margin: 10px;
+  padding: 13px;
   border: 1px dashed var(--line-strong);
-  border-radius: 9px;
+  border-radius: 11px;
   color: var(--text-muted);
 }
 
@@ -694,24 +746,25 @@ onBeforeUnmount(() => {
 }
 
 .provider-empty strong {
-  color: var(--text-soft);
-  font-size: 10px;
+  color: var(--text);
+  font-size: 14px;
 }
 
 .provider-empty span {
-  margin-top: 2px;
-  font-size: 8px;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .translate-foot {
   flex: 0 0 auto;
   justify-content: space-between;
   gap: 8px;
-  min-height: 32px;
-  padding: 4px 10px;
+  min-height: 40px;
+  padding: 6px 10px;
   border-top: 1px solid var(--line);
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .result-loading .spinner,

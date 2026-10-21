@@ -223,7 +223,7 @@ onBeforeUnmount(() => {
 .hotkey-button.recording {
   border-color: var(--accent);
   background: var(--accent-soft);
-  box-shadow: 0 0 0 3px rgba(247, 147, 30, 0.09);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.09);
 }
 
 .hotkey-button strong {
@@ -243,14 +243,14 @@ onBeforeUnmount(() => {
 
 .record-label {
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: var(--font-xs);
   white-space: nowrap;
 }
 
 .hotkey-hint {
   min-height: 14px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: var(--font-xs);
   line-height: 1.5;
 }
 

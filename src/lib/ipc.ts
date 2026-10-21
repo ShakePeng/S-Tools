@@ -29,7 +29,6 @@ export const mockBootstrap: BootstrapData = {
     screenshotEnabled: false,
     targetLang: "auto",
     launchAtLogin: false,
-    theme: "dark",
     hasCompletedOnboarding: true,
   },
   providers: [

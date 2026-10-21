@@ -1263,18 +1263,18 @@ onBeforeUnmount(() => {
 .hover-window {
   position: absolute;
   z-index: 2;
-  border: 2px solid rgba(247, 147, 30, 0.95);
+  border: 2px solid rgba(245, 158, 11, 0.95);
   border-radius: 2px;
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.5),
-    0 0 20px rgba(247, 147, 30, 0.2);
+    0 0 20px rgba(245, 158, 11, 0.2);
   pointer-events: none;
 }
 
 .capture-shade {
   position: absolute;
   z-index: 3;
-  border: 1px solid rgba(247, 147, 30, 0.9);
+  border: 1px solid rgba(245, 158, 11, 0.9);
   box-shadow: 0 0 0 9999px rgba(5, 6, 8, 0.52);
   pointer-events: none;
 }
@@ -1366,7 +1366,7 @@ onBeforeUnmount(() => {
   border-radius: 5px;
   background: #17181b;
   color: #f3f0e9;
-  font-size: 10px;
+  font-size: var(--font-xs);
   white-space: nowrap;
 }
 
@@ -1388,7 +1388,7 @@ onBeforeUnmount(() => {
   left: 0;
   width: 100%;
   color: rgba(255, 255, 255, 0.8);
-  font-size: 8px;
+  font-size: var(--font-xs);
   text-align: center;
   white-space: nowrap;
 }
@@ -1396,7 +1396,7 @@ onBeforeUnmount(() => {
 .crosshair-h,
 .crosshair-v {
   position: absolute;
-  background: rgba(247, 147, 30, 0.9);
+  background: rgba(245, 158, 11, 0.9);
 }
 
 .crosshair-h {
@@ -1466,7 +1466,7 @@ onBeforeUnmount(() => {
   border-radius: 1px;
   background: transparent;
   color: #171717;
-  font-size: 10px;
+  font-size: var(--font-xs);
   cursor: pointer;
 }
 
@@ -1561,7 +1561,7 @@ onBeforeUnmount(() => {
   gap: 5px;
   padding: 0 4px;
   color: #555555;
-  font-size: 9px;
+  font-size: var(--font-xs);
   flex-shrink: 0;
 }
 
@@ -1576,7 +1576,7 @@ onBeforeUnmount(() => {
   border-radius: 1px;
   background: #ffffff;
   color: #222222;
-  font-size: 9px;
+  font-size: var(--font-xs);
 }
 
 .undo-mark {
@@ -1636,7 +1636,7 @@ onBeforeUnmount(() => {
   border-radius: 9px;
   background: rgba(20, 21, 24, 0.9);
   color: rgba(255, 255, 255, 0.84);
-  font-size: 10px;
+  font-size: var(--font-sm);
   cursor: pointer;
   backdrop-filter: blur(8px);
 }
@@ -1649,7 +1649,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   color: rgba(255, 255, 255, 0.65);
-  font-size: 11px;
+  font-size: var(--font-sm);
 }
 
 .capture-error {
@@ -1676,14 +1676,14 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   background: rgba(16, 18, 22, 0.94);
   color: rgba(255, 255, 255, 0.94);
-  font-size: 10px;
+  font-size: var(--font-sm);
 }
 
 .capture-hint kbd {
   padding: 2px 5px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 4px;
-  font-size: 8px;
+  font-size: var(--font-xs);
 }
 
 .capture-toast {
@@ -1692,6 +1692,6 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   background: rgba(255, 107, 104, 0.9);
   color: white;
-  font-size: 10px;
+  font-size: var(--font-sm);
 }
 </style>

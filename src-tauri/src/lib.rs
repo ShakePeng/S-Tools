@@ -34,6 +34,10 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tokio_util::sync::CancellationToken;
 
 const TRAY_ID: &str = "s-tools";
+const TRANSLATION_WINDOW_WIDTH: f64 = 300.0;
+const TRANSLATION_WINDOW_DEFAULT_HEIGHT: f64 = 300.0;
+const TRANSLATION_WINDOW_MIN_HEIGHT: f64 = 220.0;
+const TRANSLATION_WINDOW_MAX_HEIGHT: f64 = 560.0;
 
 pub struct AppState {
     config: RwLock<AppConfig>,
@@ -505,7 +509,11 @@ fn show_onboarding(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn show_translation_window(app: &AppHandle, pending: &PendingTranslation) -> Result<(), String> {
+fn show_translation_window(
+    app: &AppHandle,
+    pending: &PendingTranslation,
+    anchor: Option<tauri::PhysicalPosition<f64>>,
+) -> Result<(), String> {
     let window = if let Some(window) = app.get_webview_window("translate") {
         window
     } else {
@@ -515,8 +523,13 @@ fn show_translation_window(app: &AppHandle, pending: &PendingTranslation) -> Res
             WebviewUrl::App("index.html?view=translate".into()),
         )
         .title("S-Tools 划词翻译")
-        .inner_size(440.0, 360.0)
-        .min_inner_size(360.0, 240.0)
+        .inner_size(
+            TRANSLATION_WINDOW_WIDTH,
+            TRANSLATION_WINDOW_DEFAULT_HEIGHT,
+        )
+        .min_inner_size(TRANSLATION_WINDOW_WIDTH, TRANSLATION_WINDOW_MIN_HEIGHT)
+        .max_inner_size(TRANSLATION_WINDOW_WIDTH, TRANSLATION_WINDOW_MAX_HEIGHT)
+        .resizable(false)
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
@@ -527,13 +540,27 @@ fn show_translation_window(app: &AppHandle, pending: &PendingTranslation) -> Res
         .map_err(|error| format!("创建翻译窗口失败：{error}"))?
     };
 
-    position_translation_window(app, &window)?;
+    window
+        .set_size(tauri::LogicalSize::new(
+            TRANSLATION_WINDOW_WIDTH,
+            TRANSLATION_WINDOW_DEFAULT_HEIGHT,
+        ))
+        .map_err(|error| format!("重置翻译窗口尺寸失败：{error}"))?;
+    position_translation_window(app, &window, anchor)?;
     window
         .show()
         .map_err(|error| format!("显示翻译窗口失败：{error}"))?;
     window
         .set_focus()
         .map_err(|error| format!("聚焦翻译窗口失败：{error}"))?;
+    // macOS 显示和聚焦透明窗口时可能重置初始位置，完成后再按同一锚点定位。
+    position_translation_window(app, &window, anchor)?;
+    let delayed_app = app.clone();
+    let delayed_window = window.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let _ = position_translation_window(&delayed_app, &delayed_window, anchor);
+    });
     let _ = app.emit("translate://selection", pending.clone());
     Ok(())
 }
@@ -541,15 +568,31 @@ fn show_translation_window(app: &AppHandle, pending: &PendingTranslation) -> Res
 fn position_translation_window<R: Runtime>(
     app: &AppHandle<R>,
     window: &tauri::WebviewWindow<R>,
+    anchor: Option<tauri::PhysicalPosition<f64>>,
 ) -> Result<(), String> {
-    let cursor = app.cursor_position().unwrap_or_default();
-    let monitor = app.monitor_from_point(cursor.x, cursor.y).ok().flatten();
-    let size = window.outer_size().unwrap_or_default();
+    position_translation_window_for_size(
+        app,
+        window,
+        TRANSLATION_WINDOW_WIDTH,
+        TRANSLATION_WINDOW_DEFAULT_HEIGHT,
+        anchor,
+    )
+}
+
+fn position_translation_window_for_size<R: Runtime>(
+    app: &AppHandle<R>,
+    window: &tauri::WebviewWindow<R>,
+    width: f64,
+    height: f64,
+    anchor: Option<tauri::PhysicalPosition<f64>>,
+) -> Result<(), String> {
+    let cursor = anchor.unwrap_or_else(|| app.cursor_position().unwrap_or_default());
+    let monitor = monitor_containing_point(app, cursor.x, cursor.y);
+    let mut position_scale = 1.0;
     let (x, y) = if let Some(monitor) = monitor {
         let scale = monitor.scale_factor();
+        position_scale = scale;
         let work = monitor.work_area();
-        let width = size.width as f64 / scale;
-        let height = size.height as f64 / scale;
         translation_window_position(
             cursor.x / scale,
             cursor.y / scale,
@@ -564,8 +607,87 @@ fn position_translation_window<R: Runtime>(
         (120.0, 120.0)
     };
     window
-        .set_position(tauri::LogicalPosition::new(x, y))
+        .set_position(tauri::PhysicalPosition::new(
+            (x * position_scale).round() as i32,
+            (y * position_scale).round() as i32,
+        ))
         .map_err(|error| format!("定位翻译窗口失败：{error}"))
+}
+
+fn monitor_containing_point<R: Runtime>(
+    app: &AppHandle<R>,
+    x: f64,
+    y: f64,
+) -> Option<tauri::Monitor> {
+    let monitors = app.available_monitors().ok()?;
+    monitors
+        .iter()
+        .find(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            x >= position.x as f64
+                && x < position.x as f64 + size.width as f64
+                && y >= position.y as f64
+                && y < position.y as f64 + size.height as f64
+        })
+        .cloned()
+        .or_else(|| monitors.first().cloned())
+}
+
+fn clamp_translation_window_height(height: f64) -> f64 {
+    if !height.is_finite() {
+        return TRANSLATION_WINDOW_DEFAULT_HEIGHT;
+    }
+    height.clamp(
+        TRANSLATION_WINDOW_MIN_HEIGHT,
+        TRANSLATION_WINDOW_MAX_HEIGHT,
+    )
+}
+
+#[tauri::command]
+fn resize_translation_window(app: AppHandle, height: f64) -> Result<(), String> {
+    let height = clamp_translation_window_height(height);
+    let Some(window) = app.get_webview_window("translate") else {
+        return Ok(());
+    };
+    let position = window.outer_position().unwrap_or_default();
+    let previous_size = window.outer_size().unwrap_or_default();
+    let scale = window.scale_factor().unwrap_or(1.0);
+    window
+        .set_size(tauri::LogicalSize::new(
+            TRANSLATION_WINDOW_WIDTH,
+            height,
+        ))
+        .map_err(|error| format!("调整翻译窗口高度失败：{error}"))?;
+
+    let width = (TRANSLATION_WINDOW_WIDTH * scale).round();
+    let height = (height * scale).round();
+    let anchor_x = position.x as f64 + previous_size.width as f64 / 2.0;
+    let anchor_y = position.y as f64 + previous_size.height as f64 / 2.0;
+    let Some(monitor) = monitor_containing_point(&app, anchor_x, anchor_y) else {
+        return Ok(());
+    };
+    let work = monitor.work_area();
+    let margin = 8.0 * scale;
+    let left = work.position.x as f64 + margin;
+    let top = work.position.y as f64 + margin;
+    let right = work.position.x as f64 + work.size.width as f64 - margin;
+    let bottom = work.position.y as f64 + work.size.height as f64 - margin;
+    let max_x = (right - width).max(left);
+    let max_y = (bottom - height).max(top);
+    let x = (position.x as f64).clamp(left, max_x);
+    let y = if position.y as f64 + height > bottom {
+        bottom - height
+    } else {
+        position.y as f64
+    }
+    .clamp(top, max_y);
+    window
+        .set_position(tauri::PhysicalPosition::new(
+            x.round() as i32,
+            y.round() as i32,
+        ))
+        .map_err(|error| format!("校正翻译窗口位置失败：{error}"))
 }
 
 fn translation_window_position(
@@ -578,8 +700,8 @@ fn translation_window_position(
     work_width: f64,
     work_height: f64,
 ) -> (f64, f64) {
-    const GAP_X: f64 = 14.0;
-    const GAP_Y: f64 = 18.0;
+    const GAP_X: f64 = 0.0;
+    const GAP_Y: f64 = 0.0;
     const MARGIN: f64 = 8.0;
 
     let left = work_x + MARGIN;
@@ -607,6 +729,7 @@ fn translation_window_position(
 
 async fn open_translation_workflow(app: AppHandle) -> Result<(), String> {
     ensure_translation_enabled(&app)?;
+    let anchor = app.cursor_position().ok();
     let captured = tauri::async_runtime::spawn_blocking(selection::capture_selection)
         .await
         .map_err(|error| format!("读取选区任务失败：{error}"))?;
@@ -623,7 +746,7 @@ async fn open_translation_workflow(app: AppHandle) -> Result<(), String> {
             .lock()
             .map_err(|_| "待翻译文本锁已损坏".to_string())? = pending.clone();
     }
-    show_translation_window(&app, &pending)
+    show_translation_window(&app, &pending, anchor)
 }
 
 fn ensure_translation_enabled(app: &AppHandle) -> Result<(), String> {
@@ -921,6 +1044,7 @@ pub fn run() {
             get_pending_translation,
             open_translation,
             hide_translation_window,
+            resize_translation_window,
             start_capture,
             get_capture_session,
             get_active_capture_session,
@@ -961,11 +1085,11 @@ mod tests {
     fn translation_window_flips_and_clamps_inside_work_area() {
         assert_eq!(
             translation_window_position(100.0, 100.0, 440.0, 360.0, 0.0, 0.0, 800.0, 600.0),
-            (114.0, 118.0)
+            (100.0, 100.0)
         );
         assert_eq!(
             translation_window_position(700.0, 500.0, 440.0, 360.0, 0.0, 0.0, 800.0, 600.0),
-            (246.0, 122.0)
+            (260.0, 140.0)
         );
         assert_eq!(
             translation_window_position(
@@ -978,12 +1102,24 @@ mod tests {
                 1920.0,
                 1080.0,
             ),
-            (-1686.0, 218.0)
+            (-1700.0, 200.0)
         );
         assert_eq!(
             translation_window_position(150.0, 100.0, 440.0, 360.0, 0.0, 0.0, 300.0, 200.0),
             (8.0, 8.0)
         );
+        assert_eq!(
+            translation_window_position(700.0, 500.0, 300.0, 560.0, 0.0, 0.0, 800.0, 600.0),
+            (400.0, 8.0)
+        );
+    }
+
+    #[test]
+    fn translation_window_height_is_clamped() {
+        assert_eq!(clamp_translation_window_height(100.0), 220.0);
+        assert_eq!(clamp_translation_window_height(320.0), 320.0);
+        assert_eq!(clamp_translation_window_height(900.0), 560.0);
+        assert_eq!(clamp_translation_window_height(f64::NAN), 300.0);
     }
 
     #[test]
@@ -991,6 +1127,7 @@ mod tests {
         let settings: AppSettings = serde_json::from_str(
             r#"{
                 "schemaVersion": 1,
+                "theme": "light",
                 "hotkeys": {"translate": "Alt+D", "screenshot": "F1"}
             }"#,
         )

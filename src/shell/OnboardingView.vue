@@ -19,7 +19,6 @@ const settings = reactive<AppSettings>({
   screenshotEnabled: false,
   targetLang: "auto",
   launchAtLogin: false,
-  theme: "dark",
   hasCompletedOnboarding: false,
 });
 const busy = ref(false);
@@ -212,9 +211,8 @@ onMounted(async () => {
   height: 100%;
   padding: 32px;
   background:
-    radial-gradient(circle at 15% 0%, rgba(247, 147, 30, 0.12), transparent 27%),
-    radial-gradient(circle at 100% 100%, rgba(92, 145, 255, 0.08), transparent 32%),
-    var(--bg);
+    radial-gradient(circle at 15% 0%, rgba(245, 158, 11, 0.13), transparent 30%),
+    linear-gradient(180deg, #292a2e 0%, #202124 100%);
 }
 
 .onboarding-shell {
@@ -222,9 +220,10 @@ onMounted(async () => {
   min-height: 620px;
   padding: 30px 34px 26px;
   border: 1px solid var(--line-strong);
-  border-radius: 28px;
-  background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
-  box-shadow: 0 36px 110px rgba(0, 0, 0, 0.38);
+  border-radius: 20px;
+  background: rgba(48, 49, 54, 0.82);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(22px) saturate(1.1);
 }
 
 .onboarding-head,
@@ -252,7 +251,7 @@ onMounted(async () => {
 
 .step-label {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-sm);
   font-weight: 650;
   letter-spacing: 0.08em;
 }
@@ -312,7 +311,7 @@ onMounted(async () => {
 
 .feature-pair span {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-sm);
   line-height: 1.6;
 }
 
@@ -360,13 +359,13 @@ onMounted(async () => {
 }
 
 .permission-copy strong {
-  font-size: 12px;
+  font-size: var(--font-md);
 }
 
 .permission-copy span {
   margin-top: 4px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 .permission-list .primary-button,
@@ -397,13 +396,13 @@ onMounted(async () => {
 
 .hotkey-card > span {
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--font-sm);
   font-weight: 650;
 }
 
 .hotkey-card small {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 .launch-option {
@@ -427,13 +426,13 @@ onMounted(async () => {
 }
 
 .launch-option strong {
-  font-size: 11px;
+  font-size: var(--font-sm);
 }
 
 .launch-option small {
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 .onboarding-error {
@@ -445,7 +444,7 @@ onMounted(async () => {
   border-radius: 10px;
   background: rgba(255, 107, 104, 0.1);
   color: var(--danger);
-  font-size: 11px;
+  font-size: var(--font-sm);
 }
 
 .onboarding-actions {
