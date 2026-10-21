@@ -465,9 +465,7 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   background:
     linear-gradient(180deg, rgba(43, 44, 48, 0.97), rgba(32, 33, 36, 0.99));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 14px 36px rgba(0, 0, 0, 0.36);
+  box-shadow: none;
   backdrop-filter: blur(22px) saturate(1.12);
 }
 

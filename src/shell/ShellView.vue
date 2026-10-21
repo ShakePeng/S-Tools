@@ -308,7 +308,7 @@ onBeforeUnmount(() => {
         <div>
           <strong>
             S-Tools
-            <span class="brand-version">v{{ data?.version || "1.0.4" }}</span>
+            <span class="brand-version">v{{ data?.version || "1.0.5" }}</span>
           </strong>
           <span class="brand-subtitle">轻巧的桌面工具箱</span>
         </div>
@@ -655,7 +655,7 @@ onBeforeUnmount(() => {
             <div class="update-mark"><AppIcon :size="72" /></div>
             <div>
               <span class="eyebrow">S-TOOLS DESKTOP</span>
-              <h2>版本 {{ data?.version || "1.0.4" }}</h2>
+              <h2>版本 {{ data?.version || "1.0.5" }}</h2>
               <p>更新清单来自 GitHub Release，下载后会校验 SHA256 再安装。</p>
             </div>
             <button class="primary-button" :disabled="updateChecking" @click="checkUpdate">
@@ -1248,6 +1248,10 @@ kbd {
   color: var(--text-soft);
 }
 
+.stat-icon > svg {
+  display: block;
+}
+
 .stat-icon.accent {
   background: var(--accent-soft);
   color: var(--accent-strong);
@@ -1313,16 +1317,16 @@ kbd {
   gap: 12px;
 }
 
-.permission-heading strong,
-.permission-heading span {
+.permission-heading > div strong,
+.permission-heading > div span {
   display: block;
 }
 
-.permission-heading strong {
+.permission-heading > div strong {
   font-size: var(--font-lg);
 }
 
-.permission-heading span {
+.permission-heading > div span {
   margin-top: 3px;
   color: var(--text-muted);
   font-size: var(--font-sm);
@@ -1755,16 +1759,16 @@ kbd {
   gap: 12px;
 }
 
-.feature-panel-head strong,
-.feature-panel-head span {
+.feature-panel-head > div strong,
+.feature-panel-head > div span {
   display: block;
 }
 
-.feature-panel-head strong {
+.feature-panel-head > div strong {
   font-size: var(--font-md);
 }
 
-.feature-panel-head span {
+.feature-panel-head > div span {
   margin-top: 3px;
   color: var(--text-muted);
   font-size: var(--font-xs);

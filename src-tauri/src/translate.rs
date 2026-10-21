@@ -269,31 +269,9 @@ async fn translate_openai(
     let api_key = credential(credentials, "apiKey")?;
     let base_url = provider.base_url.trim_end_matches('/');
     let endpoint = format!("{base_url}/chat/completions");
-    let target_name = language_display_name(&request.target_lang);
-    let source_instruction = if request.source_lang == "auto" {
-        "自动识别源语言".to_string()
-    } else {
-        format!("源语言为{}", language_display_name(&request.source_lang))
-    };
-    let body = json!({
-        "model": provider.model,
-        "temperature": 0.1,
-        "messages": [
-            {
-                "role": "system",
-                "content": "你是专业翻译引擎。只输出译文，不要解释、不要添加引号或 Markdown 围栏。保留原文段落、换行和专有名词。"
-            },
-            {
-                "role": "user",
-                "content": format!("{source_instruction}。请翻译为{target_name}：\n\n{}", request.text)
-            }
-        ]
-    });
+    let body = openai_translation_body(provider, request);
     let response = send_with_retry(&provider.name, || {
-        client
-            .post(&endpoint)
-            .bearer_auth(api_key)
-            .json(&body)
+        client.post(&endpoint).bearer_auth(api_key).json(&body)
     })
     .await?;
     let value = decode_response(response, &provider.name).await?;
@@ -307,6 +285,33 @@ async fn translate_openai(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| format!("{} 返回结果缺少译文", provider.name))?;
     Ok((text.to_string(), None))
+}
+
+fn openai_translation_body(provider: &ProviderConfig, request: &TranslationRequest) -> Value {
+    let target_name = language_display_name(&request.target_lang);
+    let source_instruction = if request.source_lang == "auto" {
+        "自动识别源语言".to_string()
+    } else {
+        format!("源语言为{}", language_display_name(&request.source_lang))
+    };
+    let body = json!({
+        "model": provider.model,
+        "temperature": 0.1,
+        "messages": [
+            {
+                "role": "system",
+                "content": "你是无解释的机器翻译引擎。只输出目标语言的最终译文，不要输出思考过程、源语言判断、词义分析、备选译法、标签或说明，也不要添加引号或 Markdown 围栏。即使输入是单词、菜单项、快捷键名或术语，也只给出一个最自然的译文。保留原文段落、换行和专有名词。"
+            },
+            {
+                "role": "user",
+                "content": format!(
+                    "{source_instruction}。目标语言：{target_name}。只输出最终译文，不要解释或标注。\n\n<source_text>\n{}\n</source_text>",
+                    request.text
+                )
+            }
+        ]
+    });
+    body
 }
 
 async fn post_form_json(
@@ -494,5 +499,54 @@ mod tests {
 
         let views = provider_views(&config.providers);
         assert_eq!(views[index].credentials["apiKey"], "visible-key");
+    }
+
+    #[test]
+    fn openai_translation_body_requires_plain_translation_for_any_model() {
+        let provider = ProviderConfig {
+            model: "gpt-4.1-mini".into(),
+            ..ProviderConfig::default()
+        };
+        let request = TranslationRequest {
+            request_id: "request-1".into(),
+            provider_id: "openai".into(),
+            text: "翻译快捷键".into(),
+            source_lang: "auto".into(),
+            target_lang: "en".into(),
+        };
+
+        let body = openai_translation_body(&provider, &request);
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+        assert!(body["messages"][0]["content"]
+            .as_str()
+            .expect("system prompt")
+            .contains("不要输出思考过程"));
+        assert!(body["messages"][1]["content"]
+            .as_str()
+            .expect("user prompt")
+            .contains("<source_text>\n翻译快捷键\n</source_text>"));
+    }
+
+    #[test]
+    fn openai_translation_body_uses_strict_instructions_for_other_models() {
+        let provider = ProviderConfig {
+            model: "qwen-plus".into(),
+            ..ProviderConfig::default()
+        };
+        let request = TranslationRequest {
+            request_id: "request-2".into(),
+            provider_id: "openai".into(),
+            text: "翻译快捷键".into(),
+            source_lang: "auto".into(),
+            target_lang: "en".into(),
+        };
+
+        let body = openai_translation_body(&provider, &request);
+        assert!(body.get("thinking").is_none());
+        assert!(body["messages"][0]["content"]
+            .as_str()
+            .expect("system prompt")
+            .contains("不要输出思考过程"));
     }
 }
