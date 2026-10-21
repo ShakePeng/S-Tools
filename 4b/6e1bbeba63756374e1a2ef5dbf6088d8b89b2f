@@ -1,0 +1,50 @@
+README.md
+  s_b3cfdcebc6c4ad::t_f5efe4fb239a08 78,81,179
+src-tauri/src/lib.rs
+  s_b3cfdcebc6c4ad::t_f5efe4fb239a08 56,63
+src-tauri/src/translate.rs
+  s_b3cfdcebc6c4ad::t_9c04a29c00325c 507
+  s_b3cfdcebc6c4ad::t_04dd73e05455db 505,519,532,534,547-550
+  s_b3cfdcebc6c4ad::t_45f96dc4239596 274,290
+  s_b3cfdcebc6c4ad::t_b2539d5e8a9f00 272,280,288-289,303,307-310,314,503-504,506,508-518,520-531,533,535-546,551
+  s_b3cfdcebc6c4ad::t_4f3fcd4b0febb7 273
+  s_b3cfdcebc6c4ad::t_7dbd8e43fe5378 275-279
+  s_b3cfdcebc6c4ad::t_0f62a0744a2384 281-283,285-287
+  s_b3cfdcebc6c4ad::t_8fc31fccad2ca3 284
+package.json
+  s_b3cfdcebc6c4ad::t_f5efe4fb239a08 4
+CHANGELOG.md
+  s_b3cfdcebc6c4ad::t_f5efe4fb239a08 5-12
+src-tauri/tauri.conf.json
+  s_b3cfdcebc6c4ad::t_f5efe4fb239a08 4
+src-tauri/Cargo.toml
+  s_b3cfdcebc6c4ad::t_f5efe4fb239a08 3
+src/lib/ipc.ts
+  s_b3cfdcebc6c4ad::t_f5efe4fb239a08 24
+scripts/macos-dev-app/Info.plist
+  s_b3cfdcebc6c4ad::t_f5efe4fb239a08 22,24
+src/shell/ShellView.vue
+  s_b3cfdcebc6c4ad::t_58ba5efdd7a277 1251-1254
+  s_b3cfdcebc6c4ad::t_f460f96a27a772 1320-1321,1325,1329,1762-1763,1767,1771
+  s_b3cfdcebc6c4ad::t_f5efe4fb239a08 311,658
+src/modules/translate/TranslateView.vue
+  s_b3cfdcebc6c4ad::t_f460f96a27a772 468
+src-tauri/Cargo.lock
+  s_b3cfdcebc6c4ad::t_2d2c2d95f098bd 4412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4b6e1bbeba63756374e1a2ef5dbf6088d8b89b2f",
+  "prompts": {},
+  "sessions": {
+    "s_b3cfdcebc6c4ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c56-8d79-7120-a433-a9c3e003f3f3",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
