@@ -23,8 +23,6 @@ export interface PermissionStatus {
 export type ProviderKind =
   | "baidu"
   | "google"
-  | "tencent"
-  | "deepseek"
   | "openai-compatible";
 
 export interface ProviderView {
@@ -37,6 +35,7 @@ export interface ProviderView {
   baseUrl: string;
   description: string;
   credentials: Record<string, string>;
+  useSystemProxy: boolean;
 }
 
 export interface ProviderInput {
@@ -47,6 +46,7 @@ export interface ProviderInput {
   model: string;
   baseUrl: string;
   credentials: Record<string, string>;
+  useSystemProxy: boolean;
 }
 
 export interface TranslationRequest {

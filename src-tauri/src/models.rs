@@ -56,6 +56,7 @@ pub struct ProviderConfig {
     pub base_url: String,
     pub description: String,
     pub credentials: HashMap<String, String>,
+    pub use_system_proxy: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -82,6 +83,7 @@ impl Default for AppConfig {
                     base_url: String::new(),
                     description: "百度翻译开放平台，适合中文语境。".into(),
                     credentials: HashMap::new(),
+                    use_system_proxy: Some(false),
                 },
                 ProviderConfig {
                     id: "google".into(),
@@ -91,34 +93,13 @@ impl Default for AppConfig {
                     configured: false,
                     model: String::new(),
                     base_url: String::new(),
-                    description: "Google Cloud Translation，读取系统代理。".into(),
+                    description: "Google Cloud Translation，支持按需启用系统代理。".into(),
                     credentials: HashMap::new(),
-                },
-                ProviderConfig {
-                    id: "tencent".into(),
-                    name: "腾讯云翻译".into(),
-                    kind: "tencent".into(),
-                    enabled: false,
-                    configured: false,
-                    model: String::new(),
-                    base_url: String::new(),
-                    description: "腾讯云机器翻译，支持 TC3 签名。".into(),
-                    credentials: HashMap::new(),
-                },
-                ProviderConfig {
-                    id: "deepseek".into(),
-                    name: "DeepSeek".into(),
-                    kind: "deepseek".into(),
-                    enabled: false,
-                    configured: false,
-                    model: "deepseek-chat".into(),
-                    base_url: "https://api.deepseek.com".into(),
-                    description: "更自然的上下文翻译与语气润色。".into(),
-                    credentials: HashMap::new(),
+                    use_system_proxy: Some(false),
                 },
                 ProviderConfig {
                     id: "openai".into(),
-                    name: "OpenAI 兼容".into(),
+                    name: "OpenAI".into(),
                     kind: "openai-compatible".into(),
                     enabled: false,
                     configured: false,
@@ -126,6 +107,7 @@ impl Default for AppConfig {
                     base_url: String::new(),
                     description: "接入任意兼容 Chat Completions 的服务。".into(),
                     credentials: HashMap::new(),
+                    use_system_proxy: Some(false),
                 },
             ],
         }
@@ -144,6 +126,7 @@ pub struct ProviderView {
     pub base_url: String,
     pub description: String,
     pub credentials: HashMap<String, String>,
+    pub use_system_proxy: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -159,6 +142,8 @@ pub struct ProviderInput {
     pub base_url: String,
     #[serde(default)]
     pub credentials: HashMap<String, String>,
+    #[serde(default)]
+    pub use_system_proxy: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

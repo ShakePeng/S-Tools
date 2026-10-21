@@ -46,6 +46,7 @@ pub struct AppState {
     pending: Mutex<PendingTranslation>,
     cancellations: Mutex<HashMap<String, CancellationToken>>,
     client: reqwest::Client,
+    direct_client: reqwest::Client,
     quitting: AtomicBool,
 }
 
@@ -53,10 +54,19 @@ impl AppState {
     fn new(config: AppConfig) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .user_agent("S-Tools/1.0.0")
-            .connect_timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(12))
             .timeout(Duration::from_secs(45))
+            .pool_idle_timeout(Duration::from_secs(90))
             .build()
             .map_err(|error| format!("初始化网络客户端失败：{error}"))?;
+        let direct_client = reqwest::Client::builder()
+            .user_agent("S-Tools/1.0.0")
+            .connect_timeout(Duration::from_secs(8))
+            .timeout(Duration::from_secs(30))
+            .pool_idle_timeout(Duration::from_secs(90))
+            .no_proxy()
+            .build()
+            .map_err(|error| format!("初始化直连网络客户端失败：{error}"))?;
         Ok(Self {
             config: RwLock::new(config),
             sessions: Mutex::new(HashMap::new()),
@@ -64,8 +74,20 @@ impl AppState {
             pending: Mutex::new(PendingTranslation::default()),
             cancellations: Mutex::new(HashMap::new()),
             client,
+            direct_client,
             quitting: AtomicBool::new(false),
         })
+    }
+}
+
+fn translation_client<'a>(
+    state: &'a AppState,
+    provider: &models::ProviderConfig,
+) -> &'a reqwest::Client {
+    if translate::provider_uses_system_proxy(provider) {
+        &state.client
+    } else {
+        &state.direct_client
     }
 }
 
@@ -219,8 +241,8 @@ async fn translate(
         .lock()
         .map_err(|_| "取消令牌锁已损坏".to_string())?
         .insert(cancellation_key.clone(), cancellation.clone());
-    let result =
-        translate::perform_translation(&state.client, &provider, &request, cancellation).await;
+    let client = translation_client(&state, &provider);
+    let result = translate::perform_translation(client, &provider, &request, cancellation).await;
     if let Ok(mut tokens) = state.cancellations.lock() {
         tokens.remove(&cancellation_key);
     }
@@ -272,8 +294,8 @@ async fn test_provider(
         source_lang: "auto".into(),
         target_lang: "zh-CN".into(),
     };
-    translate::perform_translation(&state.client, &provider, &request, CancellationToken::new())
-        .await
+    let client = translation_client(&state, &provider);
+    translate::perform_translation(client, &provider, &request, CancellationToken::new()).await
 }
 
 #[tauri::command]

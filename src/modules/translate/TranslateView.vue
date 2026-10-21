@@ -2,6 +2,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import AppIcon from "../../components/AppIcon.vue";
+import ProviderLogo from "../../components/ProviderLogo.vue";
 import UiIcon from "../../components/UiIcon.vue";
 import { inferTargetLanguage, truncate } from "../../lib/format";
 import { bootstrap, call, isTauri } from "../../lib/ipc";
@@ -25,6 +26,8 @@ const loading = ref(true);
 const providers = ref<ProviderView[]>([]);
 const permissions = ref<PermissionStatus | null>(null);
 const targetLang = ref("auto");
+const targetMenuOpen = ref(false);
+const targetPicker = ref<HTMLElement | null>(null);
 const results = reactive<Record<string, ResultState>>({});
 const activeRequestId = ref("");
 const editingSource = ref(false);
@@ -50,6 +53,18 @@ const resultList = computed(() =>
 const firstSuccess = computed(
   () => resultList.value.find((item) => item.state.status == "success")?.state.result || null,
 );
+const targetOptions = [
+  { value: "auto", label: "自动" },
+  { value: "zh-CN", label: "简中" },
+  { value: "zh-TW", label: "繁中" },
+  { value: "en", label: "英语" },
+  { value: "ja", label: "日语" },
+  { value: "ko", label: "韩语" },
+];
+const targetLabel = computed(
+  () => targetOptions.find((option) => option.value == targetLang.value)?.label || "自动",
+);
+const copySucceeded = computed(() => notice.value == "译文已复制");
 
 const isMac = navigator.platform.toLowerCase().includes("mac");
 const needsAccessibility = computed(
@@ -75,6 +90,7 @@ async function focusSource() {
 
 async function loadPending(pending?: PendingTranslation) {
   loading.value = true;
+  targetMenuOpen.value = false;
   try {
     const info = pending || (await call<PendingTranslation>("get_pending_translation"));
     text.value = info.text || "";
@@ -148,6 +164,7 @@ async function copyResult(result: ProviderResult | null) {
 }
 
 async function close() {
+  targetMenuOpen.value = false;
   if (activeRequestId.value) {
     await call("cancel_translation", { requestId: activeRequestId.value }).catch(() => undefined);
   }
@@ -167,6 +184,18 @@ async function openAccessibilitySettings() {
     await close();
   } catch (reason) {
     notice.value = reason instanceof Error ? reason.message : String(reason);
+  }
+}
+
+function selectTarget(value: string) {
+  targetLang.value = value;
+  targetMenuOpen.value = false;
+  translateAll();
+}
+
+function onDocumentPointerDown(event: PointerEvent) {
+  if (!targetPicker.value?.contains(event.target as Node)) {
+    targetMenuOpen.value = false;
   }
 }
 
@@ -193,6 +222,10 @@ function scheduleTranslationResize() {
 function onKeydown(event: KeyboardEvent) {
   if (event.key == "Escape") {
     event.preventDefault();
+    if (targetMenuOpen.value) {
+      targetMenuOpen.value = false;
+      return;
+    }
     close();
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() == "c" && !window.getSelection()?.toString()) {
@@ -209,6 +242,7 @@ function onKeydown(event: KeyboardEvent) {
 
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
+  document.addEventListener("pointerdown", onDocumentPointerDown);
   previousBodyBackground = document.body.style.background;
   document.body.style.background = "transparent";
   try {
@@ -239,6 +273,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
+  document.removeEventListener("pointerdown", onDocumentPointerDown);
   unlistenSelection?.();
   resizeObserver?.disconnect();
   if (resizeFrame) cancelAnimationFrame(resizeFrame);
@@ -257,17 +292,36 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="head-actions">
-        <label class="target-picker">
-          <UiIcon name="language" :size="13" />
-          <select v-model="targetLang" @change="translateAll">
-            <option value="auto">自动</option>
-            <option value="zh-CN">简中</option>
-            <option value="zh-TW">繁中</option>
-            <option value="en">英语</option>
-            <option value="ja">日语</option>
-            <option value="ko">韩语</option>
-          </select>
-        </label>
+        <div ref="targetPicker" class="target-picker">
+          <button
+            type="button"
+            class="target-trigger"
+            :class="{ open: targetMenuOpen }"
+            aria-haspopup="listbox"
+            :aria-expanded="targetMenuOpen"
+            @click="targetMenuOpen = !targetMenuOpen"
+          >
+            <UiIcon name="language" :size="13" />
+            <span>{{ targetLabel }}</span>
+            <UiIcon name="chevron-down" :size="11" />
+          </button>
+          <Transition name="target-menu">
+            <div v-if="targetMenuOpen" class="target-menu" role="listbox">
+              <button
+                v-for="option in targetOptions"
+                :key="option.value"
+                type="button"
+                role="option"
+                :aria-selected="targetLang == option.value"
+                :class="{ active: targetLang == option.value }"
+                @click="selectTarget(option.value)"
+              >
+                <span>{{ option.label }}</span>
+                <UiIcon v-if="targetLang == option.value" name="check" :size="12" />
+              </button>
+            </div>
+          </Transition>
+        </div>
         <button class="icon-button" title="翻译设置" @click="openProviderSettings">
           <UiIcon name="settings" :size="16" />
         </button>
@@ -315,8 +369,8 @@ onBeforeUnmount(() => {
         <button class="ghost-button compact" @click="focusSource">编辑原文</button>
       </section>
 
-      <div v-if="notice" class="notice">
-        <UiIcon name="alert" :size="14" />
+      <div v-if="notice" :class="['notice', { success: copySucceeded }]">
+        <UiIcon :name="copySucceeded ? 'check' : 'alert'" :size="14" />
         <span>{{ notice }}</span>
         <button v-if="needsAccessibility" class="notice-action" @click="openAccessibilitySettings">
           去授权
@@ -327,7 +381,7 @@ onBeforeUnmount(() => {
         <article v-for="{ provider, state } in resultList" :key="provider.id" class="result-card">
           <div class="result-head">
             <div class="provider-name">
-              <span class="provider-mark">{{ provider.name.slice(0, 1) }}</span>
+              <ProviderLogo :kind="provider.kind" :size="26" />
               <div>
                 <strong>{{ provider.name }}</strong>
                 <span v-if="state.result">
@@ -464,24 +518,92 @@ onBeforeUnmount(() => {
 }
 
 .target-picker {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  height: 28px;
-  padding: 0 6px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.045);
-  color: var(--text-soft);
+  position: relative;
+  flex: 0 0 auto;
 }
 
-.target-picker select {
-  max-width: 54px;
+.target-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text-soft);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.target-trigger:hover,
+.target-trigger.open {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.target-trigger > span {
+  min-width: 24px;
+  text-align: left;
+}
+
+.target-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 112px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(45, 46, 50, 0.98);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px);
+}
+
+.target-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
   border: 0;
-  outline: 0;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-soft);
   font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.target-menu button:hover {
+  background: rgba(255, 255, 255, 0.065);
+  color: var(--text);
+}
+
+.target-menu button.active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+
+.target-menu-enter-active,
+.target-menu-leave-active {
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.target-menu-enter-from,
+.target-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
 }
 
 .icon-button {
@@ -617,6 +739,12 @@ onBeforeUnmount(() => {
   line-height: 1.45;
 }
 
+.notice.success {
+  border-color: rgba(74, 222, 128, 0.18);
+  background: rgba(74, 222, 128, 0.09);
+  color: var(--success);
+}
+
 .notice > span {
   min-width: 0;
   flex: 1;
@@ -659,19 +787,6 @@ onBeforeUnmount(() => {
 .provider-name {
   min-width: 0;
   gap: 8px;
-}
-
-.provider-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--bg-soft);
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 750;
 }
 
 .provider-name strong,

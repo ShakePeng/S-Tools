@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import AppIcon from "../components/AppIcon.vue";
 import HotkeyRecorder from "../components/HotkeyRecorder.vue";
+import ProviderLogo from "../components/ProviderLogo.vue";
 import UiIcon from "../components/UiIcon.vue";
 import { truncate } from "../lib/format";
 import { formatHotkey } from "../lib/hotkeys";
@@ -66,7 +67,7 @@ const enabledProviders = computed(
 const isMac = navigator.platform.toLowerCase().includes("mac");
 const insecureBaseUrl = computed(
   () =>
-    ["deepseek", "openai-compatible"].includes(editing.value?.kind || "") &&
+    editing.value?.kind == "openai-compatible" &&
     editing.value?.baseUrl.trim().toLowerCase().startsWith("http://"),
 );
 const visibleSections = computed(() => visibleSectionItems(settingsForm));
@@ -157,6 +158,7 @@ async function persistProvider(closeAfterSave: boolean): Promise<boolean> {
       model: editing.value.model,
       baseUrl: editing.value.baseUrl,
       credentials: { ...credentials },
+      useSystemProxy: editing.value.useSystemProxy,
     };
     const provider = await call<ProviderView>("save_provider", { input });
     if (data.value) {
@@ -319,9 +321,6 @@ onBeforeUnmount(() => {
         >
           <UiIcon :name="item.icon" />
           <span>{{ item.label }}</span>
-          <span v-if="item.id === 'translation' && enabledProviders.length" class="nav-count">
-            {{ enabledProviders.length }}
-          </span>
         </button>
       </nav>
 
@@ -473,7 +472,7 @@ onBeforeUnmount(() => {
             </div>
             <label class="field">
               <span>默认目标语言</span>
-              <select v-model="settingsForm.targetLang" class="select-input">
+              <select v-model="settingsForm.targetLang" class="select-input target-language-select">
                 <option value="auto">自动判断</option>
                 <option value="zh-CN">简体中文</option>
                 <option value="zh-TW">繁体中文</option>
@@ -497,13 +496,19 @@ onBeforeUnmount(() => {
             v-for="provider in data?.providers"
             :key="provider.id"
             :class="['provider-card', { enabled: provider.enabled, configured: provider.configured }]"
+            role="button"
+            tabindex="0"
+            :aria-label="`配置 ${provider.name}`"
+            @click="openProvider(provider)"
+            @keydown.enter="openProvider(provider)"
+            @keydown.space.prevent="openProvider(provider)"
           >
             <div class="provider-card-head">
-              <div class="provider-logo">{{ provider.name.slice(0, 1) }}</div>
+              <ProviderLogo :kind="provider.kind" />
               <button
                 :class="['toggle', { active: provider.enabled }]"
                 :aria-label="provider.enabled ? '停用' : '启用'"
-                @click="toggleProvider(provider)"
+                @click.stop="toggleProvider(provider)"
               >
                 <span></span>
               </button>
@@ -513,10 +518,13 @@ onBeforeUnmount(() => {
               <p>{{ provider.description }}</p>
             </div>
             <div class="provider-card-foot">
-              <span :class="['badge', { success: provider.configured }]">
-                {{ provider.configured ? "已配置" : "待配置" }}
-              </span>
-              <button class="ghost-button" @click="openProvider(provider)">
+              <div class="provider-card-tags">
+                <span :class="['badge', { success: provider.configured }]">
+                  {{ provider.configured ? "已配置" : "待配置" }}
+                </span>
+                <span class="badge">{{ provider.useSystemProxy ? "系统代理" : "直连" }}</span>
+              </div>
+              <button class="ghost-button" @click.stop="openProvider(provider)">
                 <UiIcon name="edit" :size="15" />
                 配置
               </button>
@@ -698,8 +706,8 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
-    <div v-if="editing" class="modal-backdrop" @click.self="editing = null">
-      <form class="modal" @submit.prevent="saveProvider">
+    <div v-if="editing" class="modal-backdrop" @pointerdown.self="editing = null">
+      <form class="modal" @pointerdown.stop @submit.prevent="saveProvider">
         <div class="modal-head">
           <div>
             <span class="eyebrow">CONFIGURE</span>
@@ -723,21 +731,11 @@ onBeforeUnmount(() => {
             <span>Google API Key</span>
             <input v-model="credentials.apiKey" class="text-input" type="text" autocomplete="off" />
           </label>
-          <template v-if="editing.kind === 'tencent'">
-            <label class="field">
-              <span>Secret ID</span>
-              <input v-model="credentials.secretId" class="text-input" autocomplete="off" />
-            </label>
-            <label class="field">
-              <span>Secret Key</span>
-              <input v-model="credentials.secretKey" class="text-input" type="text" autocomplete="off" />
-            </label>
-          </template>
-          <label v-if="['deepseek', 'openai-compatible'].includes(editing.kind)" class="field">
+          <label v-if="editing.kind === 'openai-compatible'" class="field">
             <span>API Key</span>
             <input v-model="credentials.apiKey" class="text-input" type="text" autocomplete="off" />
           </label>
-          <label v-if="['deepseek', 'openai-compatible'].includes(editing.kind)" class="field">
+          <label v-if="editing.kind === 'openai-compatible'" class="field">
             <span>Base URL</span>
             <input
               v-model="editing.baseUrl"
@@ -749,11 +747,19 @@ onBeforeUnmount(() => {
               HTTP 会明文传输 API Key，请仅用于可信内网或本机服务。
             </p>
           </label>
-          <label v-if="['deepseek', 'openai-compatible'].includes(editing.kind)" class="field">
+          <label v-if="editing.kind === 'openai-compatible'" class="field">
             <span>模型</span>
-            <input v-model="editing.model" class="text-input" placeholder="deepseek-chat" />
+            <input v-model="editing.model" class="text-input" placeholder="gpt-4.1-mini" />
           </label>
         </div>
+
+        <label class="proxy-setting">
+          <span>
+            <strong>走系统代理</strong>
+            <small>默认关闭；仅海外服务无法直连时再按需开启。</small>
+          </span>
+          <input v-model="editing.useSystemProxy" type="checkbox" class="switch-input" />
+        </label>
 
         <p class="modal-hint">
           空字段表示未配置；已保存的凭据会直接回显。填写新值会覆盖本机配置中的旧值。
@@ -860,17 +866,6 @@ onBeforeUnmount(() => {
   background: var(--accent-soft);
   color: var(--accent-strong);
   font-weight: 650;
-}
-
-.nav-count {
-  min-width: 20px;
-  margin-left: auto;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: rgba(245, 158, 11, 0.18);
-  color: var(--accent-strong);
-  font-size: var(--font-xs);
-  text-align: center;
 }
 
 .sidebar-foot {
@@ -1559,6 +1554,7 @@ kbd {
   border-radius: 17px;
   background: rgba(48, 49, 54, 0.78);
   box-shadow: var(--shadow-card);
+  cursor: pointer;
   transition:
     border-color 180ms ease,
     transform 180ms ease;
@@ -1566,6 +1562,11 @@ kbd {
 
 .provider-card:hover {
   transform: translateY(-2px);
+}
+
+.provider-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .provider-card.enabled {
@@ -1576,19 +1577,6 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.provider-logo {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
-  background: var(--bg-soft);
-  color: var(--accent-strong);
-  font-size: 15px;
-  font-weight: 750;
 }
 
 .toggle {
@@ -1643,6 +1631,12 @@ kbd {
   justify-content: space-between;
   margin-top: auto;
   padding-top: 18px;
+}
+
+.provider-card-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .provider-card-foot .ghost-button {
@@ -1942,6 +1936,11 @@ kbd {
   grid-template-columns: 1fr 1fr;
 }
 
+.target-language-select {
+  background: var(--bg);
+  box-shadow: none;
+}
+
 .settings-rows {
   display: grid;
   gap: 2px;
@@ -2156,6 +2155,34 @@ kbd {
 
 .modal-fields .field {
   padding-top: 12px;
+}
+
+.proxy-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.proxy-setting strong,
+.proxy-setting small {
+  display: block;
+}
+
+.proxy-setting strong {
+  font-size: var(--font-md);
+}
+
+.proxy-setting small {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
 }
 
 .modal-hint {

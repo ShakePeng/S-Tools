@@ -6,6 +6,8 @@ use std::{
 use tauri::{AppHandle, Manager};
 
 use crate::models::AppConfig;
+#[cfg(test)]
+use crate::models::ProviderConfig;
 
 pub fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
@@ -28,7 +30,15 @@ pub fn load_config(app: &AppHandle) -> Result<AppConfig, String> {
         .map_err(|error| format!("读取配置失败（{}）：{error}", path.display()))?;
     let mut config: AppConfig = serde_json::from_str(&content)
         .map_err(|error| format!("解析配置失败（{}）：{error}", path.display()))?;
+    let previous_provider_count = config.providers.len();
+    let needs_openai_rename = config
+        .providers
+        .iter()
+        .any(|provider| provider.id == "openai" && provider.name != "OpenAI");
     migrate_provider_status(&mut config);
+    if config.providers.len() != previous_provider_count || needs_openai_rename {
+        save_config(app, &config)?;
+    }
     Ok(config)
 }
 
@@ -58,8 +68,17 @@ fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), 
 }
 
 fn migrate_provider_status(config: &mut AppConfig) {
+    config
+        .providers
+        .retain(|provider| {
+            !matches!(provider.id.as_str(), "tencent" | "deepseek")
+                && !matches!(provider.kind.as_str(), "tencent" | "deepseek")
+        });
     // 旧配置没有 credentials/configured 字段；凭据已不在钥匙串，需要重新填写一次。
     for provider in &mut config.providers {
+        if provider.id == "openai" {
+            provider.name = "OpenAI".into();
+        }
         if provider.credentials.is_empty() && provider.enabled {
             provider.configured = false;
         }
@@ -73,10 +92,39 @@ mod tests {
     #[test]
     fn enabled_legacy_provider_requires_credentials_again() {
         let mut config = AppConfig::default();
+        config.providers.push(ProviderConfig {
+            id: "tencent".into(),
+            kind: "tencent".into(),
+            ..ProviderConfig::default()
+        });
+        config.providers.push(ProviderConfig {
+            id: "deepseek".into(),
+            kind: "deepseek".into(),
+            ..ProviderConfig::default()
+        });
+        config.providers.push(ProviderConfig {
+            id: "openai".into(),
+            name: "OpenAI 兼容".into(),
+            kind: "openai-compatible".into(),
+            ..ProviderConfig::default()
+        });
         config.providers[0].enabled = true;
         config.providers[0].configured = true;
         migrate_provider_status(&mut config);
         assert!(!config.providers[0].configured);
         assert!(!config.providers[1].configured);
+        assert!(config
+            .providers
+            .iter()
+            .all(|provider| !matches!(provider.id.as_str(), "tencent" | "deepseek")));
+        assert_eq!(
+            config
+                .providers
+                .iter()
+                .find(|provider| provider.id == "openai")
+                .expect("openai provider")
+                .name,
+            "OpenAI"
+        );
     }
 }

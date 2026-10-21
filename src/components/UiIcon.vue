@@ -39,6 +39,7 @@ defineProps<{ name: string; size?: number }>();
     <path v-else-if="name === 'cursor'" d="M5 3l14 8-6 1.5L10 19z" />
     <path v-else-if="name === 'save'" d="M5 3h12l3 3v15H4V3zM8 3v6h8V3M8 21v-7h8v7" />
     <path v-else-if="name === 'plus'" d="M12 5v14M5 12h14" />
+    <path v-else-if="name === 'chevron-down'" d="m7 9 5 5 5-5" />
     <path v-else-if="name === 'language'" d="M4 5h10M9 3v2c0 5-2.4 8.7-6 10M6 9c1.4 3 3.7 5.1 7 6M14 19l3.2-9 3.2 9M15.2 16h4.1" />
   </svg>
 </template>
