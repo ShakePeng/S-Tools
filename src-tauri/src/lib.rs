@@ -3,7 +3,6 @@ mod config;
 mod maintenance;
 mod models;
 mod platform;
-mod secrets;
 mod selection;
 mod translate;
 mod updater;
@@ -149,7 +148,6 @@ fn save_provider(
         .find(|provider| provider.id == input.id)
         .ok_or_else(|| "翻译服务不存在".to_string())?;
     translate::apply_provider_input(provider, &input)?;
-    secrets::write_bundle(&input.id, &input.credentials)?;
     config::save_config(&app, &config)?;
     let view = translate::provider_views(&config.providers)
         .into_iter()
@@ -165,9 +163,6 @@ fn set_provider_enabled(
     id: String,
     enabled: bool,
 ) -> Result<ProviderView, String> {
-    if enabled && !secrets::is_configured(&id) {
-        return Err("请先完成该翻译服务的配置".into());
-    }
     let mut config = state
         .config
         .write()
@@ -177,6 +172,9 @@ fn set_provider_enabled(
         .iter_mut()
         .find(|provider| provider.id == id)
         .ok_or_else(|| "翻译服务不存在".to_string())?;
+    if enabled && !provider.configured {
+        return Err("请先完成该翻译服务的配置".into());
+    }
     provider.enabled = enabled;
     config::save_config(&app, &config)?;
     translate::provider_views(&config.providers)
@@ -207,7 +205,7 @@ async fn translate(
     if !provider.enabled {
         return Err("该翻译服务尚未启用".into());
     }
-    if !secrets::is_configured(&provider.id) {
+    if !provider.configured {
         return Err("该翻译服务尚未配置凭据".into());
     }
     let cancellation_key = format!("{}:{}", request.request_id, provider.id);
@@ -398,6 +396,10 @@ fn get_permission_status() -> PermissionStatus {
 fn open_permission_settings(kind: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        if kind == "accessibility" {
+            // 仅打开设置页不会让未签名的开发版出现在权限列表中，先主动触发系统授权请求。
+            selection::request_accessibility();
+        }
         let anchor = match kind.as_str() {
             "accessibility" => "Privacy_Accessibility",
             "screenRecording" => "Privacy_ScreenCapture",
@@ -867,6 +869,18 @@ pub fn run() {
                 .set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             setup_tray(app)?;
+            #[cfg(all(target_os = "macos", debug_assertions))]
+            if settings.translation_enabled && !selection::accessibility_allowed() {
+                let permission_handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(800)).await;
+                    let main_handle = permission_handle.clone();
+                    let _ = permission_handle.run_on_main_thread(move || {
+                        let _ = show_main_window(&main_handle, "translation");
+                        selection::request_accessibility();
+                    });
+                });
+            }
             let _ = capture::cleanup_stale_temp(&handle);
             let _ = capture::ensure_capture_window(&handle);
             register_shortcuts(&handle).map_err(|error| error.to_string())?;

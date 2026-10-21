@@ -6,6 +6,7 @@ import UiIcon from "../../components/UiIcon.vue";
 import { inferTargetLanguage, truncate } from "../../lib/format";
 import { bootstrap, call, isTauri } from "../../lib/ipc";
 import type {
+  PermissionStatus,
   PendingTranslation,
   ProviderResult,
   ProviderView,
@@ -22,6 +23,7 @@ const text = ref("");
 const notice = ref("");
 const loading = ref(true);
 const providers = ref<ProviderView[]>([]);
+const permissions = ref<PermissionStatus | null>(null);
 const targetLang = ref("auto");
 const results = reactive<Record<string, ResultState>>({});
 const activeRequestId = ref("");
@@ -45,6 +47,9 @@ const firstSuccess = computed(
 );
 
 const isMac = navigator.platform.toLowerCase().includes("mac");
+const needsAccessibility = computed(
+  () => isMac && permissions.value?.accessibility == false && notice.value.includes("辅助功能"),
+);
 
 function ensureResult(providerId: string): ResultState {
   if (!results[providerId]) {
@@ -151,6 +156,15 @@ async function openProviderSettings() {
   await close();
 }
 
+async function openAccessibilitySettings() {
+  try {
+    await call("open_permission_settings", { kind: "accessibility" });
+    await close();
+  } catch (reason) {
+    notice.value = reason instanceof Error ? reason.message : String(reason);
+  }
+}
+
 function onKeydown(event: KeyboardEvent) {
   if (event.key == "Escape") {
     event.preventDefault();
@@ -174,6 +188,7 @@ onMounted(async () => {
     const data = await bootstrap();
     targetLang.value = data.settings.targetLang;
     providers.value = data.providers;
+    permissions.value = data.permissions;
     for (const provider of configuredProviders.value) ensureResult(provider.id);
     await loadPending();
   } catch (reason) {
@@ -266,7 +281,10 @@ onBeforeUnmount(() => {
 
       <div v-if="notice" class="notice">
         <UiIcon name="alert" :size="14" />
-        {{ notice }}
+        <span>{{ notice }}</span>
+        <button v-if="needsAccessibility" class="notice-action" @click="openAccessibilitySettings">
+          去授权
+        </button>
       </div>
 
       <section v-if="configuredProviders.length" class="results">
@@ -545,6 +563,23 @@ onBeforeUnmount(() => {
   background: rgba(255, 107, 104, 0.09);
   color: var(--danger);
   font-size: 8px;
+}
+
+.notice > span {
+  min-width: 0;
+  flex: 1;
+}
+
+.notice-action {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .results {

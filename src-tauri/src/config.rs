@@ -26,8 +26,10 @@ pub fn load_config(app: &AppHandle) -> Result<AppConfig, String> {
     }
     let content = fs::read_to_string(&path)
         .map_err(|error| format!("读取配置失败（{}）：{error}", path.display()))?;
-    serde_json::from_str(&content)
-        .map_err(|error| format!("解析配置失败（{}）：{error}", path.display()))
+    let mut config: AppConfig = serde_json::from_str(&content)
+        .map_err(|error| format!("解析配置失败（{}）：{error}", path.display()))?;
+    migrate_provider_status(&mut config);
+    Ok(config)
 }
 
 pub fn save_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
@@ -53,4 +55,28 @@ fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), 
     }
     fs::rename(&temporary, path)
         .map_err(|error| format!("提交配置失败（{}）：{error}", path.display()))
+}
+
+fn migrate_provider_status(config: &mut AppConfig) {
+    // 旧配置没有 credentials/configured 字段；凭据已不在钥匙串，需要重新填写一次。
+    for provider in &mut config.providers {
+        if provider.credentials.is_empty() && provider.enabled {
+            provider.configured = false;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enabled_legacy_provider_requires_credentials_again() {
+        let mut config = AppConfig::default();
+        config.providers[0].enabled = true;
+        config.providers[0].configured = true;
+        migrate_provider_status(&mut config);
+        assert!(!config.providers[0].configured);
+        assert!(!config.providers[1].configured);
+    }
 }

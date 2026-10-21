@@ -154,11 +154,7 @@ async function startCapture() {
 function openProvider(provider: ProviderView) {
   editing.value = provider;
   for (const key of Object.keys(credentials)) delete credentials[key];
-  credentials.appId = "";
-  credentials.secret = "";
-  credentials.apiKey = "";
-  credentials.secretId = "";
-  credentials.secretKey = "";
+  Object.assign(credentials, provider.credentials);
 }
 
 async function persistProvider(closeAfterSave: boolean): Promise<boolean> {
@@ -426,7 +422,7 @@ onBeforeUnmount(() => {
           <div>
             <span class="eyebrow">PROVIDERS</span>
             <h2>划词翻译</h2>
-            <p>按需启用，可同时对照多个服务的结果。密钥仅保存在系统凭据库。</p>
+            <p>按需启用，可同时对照多个服务的结果。密钥仅保存在本机应用配置中。</p>
           </div>
           <span class="badge accent">{{ enabledProviders.length }} 个服务已启用</span>
         </section>
@@ -744,11 +740,11 @@ onBeforeUnmount(() => {
           </label>
           <label v-if="editing.kind === 'baidu'" class="field">
             <span>App 密钥</span>
-            <input v-model="credentials.secret" class="text-input" type="password" autocomplete="off" />
+            <input v-model="credentials.secret" class="text-input" type="text" autocomplete="off" />
           </label>
           <label v-if="editing.kind === 'google'" class="field">
             <span>Google API Key</span>
-            <input v-model="credentials.apiKey" class="text-input" type="password" autocomplete="off" />
+            <input v-model="credentials.apiKey" class="text-input" type="text" autocomplete="off" />
           </label>
           <template v-if="editing.kind === 'tencent'">
             <label class="field">
@@ -757,12 +753,12 @@ onBeforeUnmount(() => {
             </label>
             <label class="field">
               <span>Secret Key</span>
-              <input v-model="credentials.secretKey" class="text-input" type="password" autocomplete="off" />
+              <input v-model="credentials.secretKey" class="text-input" type="text" autocomplete="off" />
             </label>
           </template>
           <label v-if="['deepseek', 'openai-compatible'].includes(editing.kind)" class="field">
             <span>API Key</span>
-            <input v-model="credentials.apiKey" class="text-input" type="password" autocomplete="off" />
+            <input v-model="credentials.apiKey" class="text-input" type="text" autocomplete="off" />
           </label>
           <label v-if="['deepseek', 'openai-compatible'].includes(editing.kind)" class="field">
             <span>Base URL</span>
@@ -783,7 +779,7 @@ onBeforeUnmount(() => {
         </div>
 
         <p class="modal-hint">
-          已保存的密钥不会回显。留空会保留原密钥；填写新值会覆盖系统凭据库中的旧密钥。
+          空字段表示未配置；已保存的凭据会直接回显。填写新值会覆盖本机配置中的旧值。
         </p>
 
         <div class="modal-actions">

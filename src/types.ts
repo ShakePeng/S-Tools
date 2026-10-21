@@ -39,6 +39,7 @@ export interface ProviderView {
   model: string;
   baseUrl: string;
   description: string;
+  credentials: Record<string, string>;
 }
 
 export interface ProviderInput {

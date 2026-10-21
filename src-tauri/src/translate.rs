@@ -8,9 +8,8 @@ use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-use crate::{
-    models::{ProviderConfig, ProviderInput, ProviderResult, ProviderView, TranslationRequest},
-    secrets,
+use crate::models::{
+    ProviderConfig, ProviderInput, ProviderResult, ProviderView, TranslationRequest,
 };
 
 type HmacSha256 = Hmac<Sha256>;
@@ -23,12 +22,23 @@ pub fn provider_views(providers: &[ProviderConfig]) -> Vec<ProviderView> {
             name: provider.name.clone(),
             kind: provider.kind.clone(),
             enabled: provider.enabled,
-            configured: secrets::is_configured(&provider.id),
+            configured: provider.configured,
             model: provider.model.clone(),
             base_url: provider.base_url.clone(),
             description: provider.description.clone(),
+            credentials: provider.credentials.clone(),
         })
         .collect()
+}
+
+pub fn credentials_complete(provider: &ProviderConfig) -> bool {
+    validate_credentials(
+        &provider.kind,
+        &provider.base_url,
+        &provider.model,
+        &provider.credentials,
+    )
+    .is_ok()
 }
 
 pub fn apply_provider_input(
@@ -41,37 +51,35 @@ pub fn apply_provider_input(
     if !input.base_url.trim().is_empty() {
         validate_base_url(&input.base_url)?;
     }
-    config.name = input.name.trim().to_string();
-    config.kind = input.kind.clone();
-    config.enabled = input.enabled;
-    config.model = input.model.trim().to_string();
-    config.base_url = input.base_url.trim().trim_end_matches('/').to_string();
-    if config.kind == "deepseek" {
-        if config.base_url.is_empty() {
-            config.base_url = "https://api.deepseek.com".into();
+    let mut next = config.clone();
+    next.name = input.name.trim().to_string();
+    next.kind = input.kind.clone();
+    next.enabled = input.enabled;
+    next.model = input.model.trim().to_string();
+    next.base_url = input.base_url.trim().trim_end_matches('/').to_string();
+    if next.kind == "deepseek" {
+        if next.base_url.is_empty() {
+            next.base_url = "https://api.deepseek.com".into();
         }
-        if config.model.is_empty() {
-            config.model = "deepseek-chat".into();
+        if next.model.is_empty() {
+            next.model = "deepseek-chat".into();
         }
     }
-    if config.enabled {
-        let bundle = secrets::read_bundle(&input.id)?;
-        let merged = merge_credentials(bundle, &input.credentials);
-        validate_credentials(&config.kind, &config.base_url, &config.model, &merged)?;
+    merge_credentials(&mut next.credentials, &input.credentials);
+    next.configured = credentials_complete(&next);
+    if next.enabled {
+        validate_credentials(&next.kind, &next.base_url, &next.model, &next.credentials)?;
     }
+    *config = next;
     Ok(())
 }
 
-fn merge_credentials(
-    mut existing: HashMap<String, String>,
-    updates: &HashMap<String, String>,
-) -> HashMap<String, String> {
+fn merge_credentials(existing: &mut HashMap<String, String>, updates: &HashMap<String, String>) {
     for (key, value) in updates {
         if !value.trim().is_empty() {
             existing.insert(key.clone(), value.trim().to_string());
         }
     }
-    existing
 }
 
 fn validate_credentials(
@@ -131,17 +139,17 @@ pub async fn perform_translation(
     if request.text.trim().is_empty() {
         return Err("没有可翻译的文本".into());
     }
-    let credentials = secrets::read_bundle(&provider.id)?;
+    let credentials = &provider.credentials;
     let started = Instant::now();
     let (translated, detected) = tokio::select! {
         _ = cancellation.cancelled() => return Err("翻译已取消".into()),
         result = async {
             match provider.kind.as_str() {
-                "baidu" => translate_baidu(client, provider, &credentials, request).await,
-                "google" => translate_google(client, &credentials, request).await,
-                "tencent" => translate_tencent(client, &credentials, request).await,
+                "baidu" => translate_baidu(client, provider, credentials, request).await,
+                "google" => translate_google(client, credentials, request).await,
+                "tencent" => translate_tencent(client, credentials, request).await,
                 "deepseek" | "openai-compatible" => {
-                    translate_openai(client, provider, &credentials, request).await
+                    translate_openai(client, provider, credentials, request).await
                 }
                 _ => Err("不支持的翻译服务类型".to_string()),
             }
@@ -541,5 +549,46 @@ mod tests {
         assert!(validate_base_url("http://192.168.1.20:8000/v1").is_ok());
         assert!(validate_base_url("https://api.example.com/v1").is_ok());
         assert!(validate_base_url("ftp://api.example.com/v1").is_err());
+    }
+
+    #[test]
+    fn provider_credentials_are_saved_and_preserved_when_blank() {
+        let mut provider = crate::models::AppConfig::default()
+            .providers
+            .into_iter()
+            .find(|provider| provider.id == "openai")
+            .expect("openai provider");
+        let mut credentials = HashMap::new();
+        credentials.insert("apiKey".into(), "secret-key".into());
+        let input = ProviderInput {
+            id: provider.id.clone(),
+            name: provider.name.clone(),
+            kind: provider.kind.clone(),
+            enabled: true,
+            model: "deepseek-v4.1-flash".into(),
+            base_url: "http://127.0.0.1:7864/v1".into(),
+            credentials,
+        };
+        apply_provider_input(&mut provider, &input).expect("valid provider");
+        assert_eq!(provider.credentials["apiKey"], "secret-key");
+        assert!(provider.configured);
+
+        let input = ProviderInput {
+            credentials: HashMap::new(),
+            ..input
+        };
+        apply_provider_input(&mut provider, &input).expect("preserve credentials");
+        assert_eq!(provider.credentials["apiKey"], "secret-key");
+    }
+
+    #[test]
+    fn provider_views_include_saved_credentials_for_settings() {
+        let mut config = crate::models::AppConfig::default();
+        config.providers[4]
+            .credentials
+            .insert("apiKey".into(), "visible-key".into());
+
+        let views = provider_views(&config.providers);
+        assert_eq!(views[4].credentials["apiKey"], "visible-key");
     }
 }

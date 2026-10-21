@@ -10,10 +10,18 @@ pub fn accessibility_allowed() -> bool {
     unsafe { stools_ax_is_trusted() }
 }
 
+#[cfg(target_os = "macos")]
+pub fn request_accessibility() {
+    unsafe { stools_request_accessibility() }
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn accessibility_allowed() -> bool {
     true
 }
+
+#[cfg(not(target_os = "macos"))]
+pub fn request_accessibility() {}
 
 #[cfg(target_os = "macos")]
 pub fn screen_recording_allowed() -> bool {
@@ -84,6 +92,7 @@ pub fn capture_selection() -> CapturedSelection {
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn stools_ax_is_trusted() -> bool;
+    fn stools_request_accessibility();
     fn stools_screen_recording_allowed() -> bool;
     fn stools_request_screen_recording();
     fn stools_selected_text_ax() -> *mut std::os::raw::c_char;

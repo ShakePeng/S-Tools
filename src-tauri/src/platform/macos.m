@@ -54,6 +54,11 @@ bool stools_ax_is_trusted(void) {
     return AXIsProcessTrusted();
 }
 
+void stools_request_accessibility(void) {
+    NSDictionary *options = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES};
+    AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
+}
+
 bool stools_screen_recording_allowed(void) {
     return CGPreflightScreenCaptureAccess();
 }

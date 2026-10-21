@@ -42,6 +42,7 @@ export const mockBootstrap: BootstrapData = {
       model: "",
       baseUrl: "",
       description: "百度翻译开放平台，适合中文语境。",
+      credentials: {},
     },
     {
       id: "google",
@@ -52,6 +53,7 @@ export const mockBootstrap: BootstrapData = {
       model: "",
       baseUrl: "",
       description: "Google Cloud Translation，读取系统代理。",
+      credentials: {},
     },
     {
       id: "tencent",
@@ -62,6 +64,7 @@ export const mockBootstrap: BootstrapData = {
       model: "",
       baseUrl: "",
       description: "腾讯云机器翻译，支持 TC3 签名。",
+      credentials: {},
     },
     {
       id: "deepseek",
@@ -72,6 +75,7 @@ export const mockBootstrap: BootstrapData = {
       model: "deepseek-chat",
       baseUrl: "https://api.deepseek.com",
       description: "更自然的上下文翻译与语气润色。",
+      credentials: {},
     },
     {
       id: "openai",
@@ -82,6 +86,7 @@ export const mockBootstrap: BootstrapData = {
       model: "",
       baseUrl: "",
       description: "接入任意兼容 Chat Completions 的服务。",
+      credentials: {},
     },
   ],
   permissions: { accessibility: false, screenRecording: false },

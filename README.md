@@ -29,6 +29,42 @@ yarn install
 yarn tauri:dev
 ```
 
+macOS 首次开发时，先安装一次本地代码签名身份：
+
+```bash
+yarn tauri:dev:setup
+yarn tauri:dev
+```
+
+初始化脚本会创建并信任本地证书 `S-Tools Local Dev`，需要确认一次 macOS 用户认证弹框。之后 `yarn tauri:dev` 会在每次 Rust 编译完成后自动签名再启动，前端热更新和 Rust 文件监听保持不变，不需要为了辅助功能权限反复打包或重新授权。
+
+首次从 ad-hoc 调试版切换到这个签名身份后，需要在“系统设置 → 隐私与安全性 → 辅助功能”中删除旧的 `S-Tools Dev` 记录。macOS 有时不会自动弹出授权提示，此时点击列表左下角 `+`，选择或拖入：
+
+```text
+~/Applications/S-Tools Dev.app
+```
+
+打开右侧开关即可。该手动添加只需要执行一次；之后 Rust 代码修改、重新编译和重新启动都会复用该权限。
+
+可选命令：
+
+```bash
+# 构建可独立启动的调试 App，使用同一签名身份
+yarn tauri:dev:app
+
+# 不经过本地签名，仅用于不需要选区读取的界面调试
+yarn tauri:dev:raw
+
+# 删除本地开发证书和登录钥匙串中的私钥
+yarn tauri:dev:setup:remove
+```
+
+如果本机后续安装了 Apple Development 证书，可通过环境变量切换签名身份：
+
+```bash
+S_TOOLS_SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" yarn tauri:dev
+```
+
 项目通过根目录 `.yarnrc` 固定使用淘宝 npm 镜像 `https://registry.npmmirror.com`。
 
 常用验证：
@@ -55,7 +91,7 @@ macOS 首次使用需要：
 - **辅助功能**：读取当前选中文本；失败时使用复制降级。
 - **屏幕录制**：截图时捕获当前显示器。
 
-Windows 无需额外授权。所有翻译服务默认关闭，需要用户自行填写服务凭据；密钥保存在 macOS Keychain 或 Windows Credential Manager。
+Windows 无需额外授权。所有翻译服务默认关闭，需要用户自行填写服务凭据；密钥保存在应用数据目录的 `config.json` 中，文件权限限制为当前用户可读写。
 
 ## 数据目录
 

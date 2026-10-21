@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "S-Tools Dev",
+  "identifier": "cn.shakepeng.stools.dev",
+  "bundle": {
+    "macOS": {
+      "signingIdentity": "S-Tools Local Dev"
+    }
+  }
+}
