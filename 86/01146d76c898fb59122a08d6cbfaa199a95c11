@@ -1,0 +1,21 @@
+src-tauri/src/lib.rs
+  s_b3cfdcebc6c4ad::t_74e8e8c8593343 182-183,208,211-214
+src/modules/translate/TranslateView.vue
+  s_b3cfdcebc6c4ad::t_74e8e8c8593343 37,112-118,283-287,301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8601146d76c898fb59122a08d6cbfaa199a95c11",
+  "prompts": {},
+  "sessions": {
+    "s_b3cfdcebc6c4ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c56-8d79-7120-a433-a9c3e003f3f3",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
