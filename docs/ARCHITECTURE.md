@@ -100,10 +100,13 @@ interface TranslationRequest {
 
 macOS 自更新使用 `.app.zip`，替换失败时回滚旧 `.app`；Windows 使用 NSIS `/S /R`。
 
+macOS 正式版使用固定自签名证书 `S-Tools Release Signing`。GitHub Actions 从 Secrets 导入同一 P12 身份并签署 `.app` 与 DMG；发布步骤会校验签名 Authority、证书指纹，并拒绝绑定 CDHash 的 designated requirement。固定 Bundle ID、证书和安装路径后，辅助功能与屏幕录制权限可跨版本复用。
+
 ## 已知边界
 
 - 首版只构建 macOS ARM64 与 Windows x64。
-- macOS ad-hoc 签名升级后可能触发权限重新授权。
+- macOS 使用自签名证书且未公证；首次启动可能出现系统安全提示。
+- 证书被替换、Bundle ID 改变或应用安装路径改变时，macOS 会要求重新授权辅助功能和屏幕录制。
 - 自定义 OpenAI Base URL 支持 HTTP 与 HTTPS；使用 HTTP 时界面会提示 API Key 将明文传输。
 - 跨屏框选、滚动截图、OCR 和取色器不在首版范围。
 - Kiri 来源固定在 `52d2d2f8fd613ce3341cbfae371009f06b123903`，不跟随上游自动更新。

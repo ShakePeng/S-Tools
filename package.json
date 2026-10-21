@@ -1,7 +1,7 @@
 {
   "name": "s-tools",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,6 +16,8 @@
     "tauri:dev:setup": "bash scripts/setup-macos-dev-signing.sh",
     "tauri:dev:setup:remove": "bash scripts/setup-macos-dev-signing.sh --remove",
     "tauri:dev:app": "node scripts/tauri-dev-app.mjs",
+    "tauri:release:cert": "bash scripts/create-macos-release-signing.sh",
+    "tauri:release:trust": "bash scripts/trust-macos-release-signing.sh",
     "tauri:build": "tauri build",
     "tauri:build:macos": "tauri build --target aarch64-apple-darwin --bundles dmg",
     "tauri:build:windows": "tauri build --bundles nsis",

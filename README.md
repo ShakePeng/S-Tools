@@ -65,6 +65,35 @@ yarn tauri:dev:setup:remove
 S_TOOLS_SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" yarn tauri:dev
 ```
 
+### macOS 正式版固定签名
+
+正式版使用固定的自签名证书 `S-Tools Release Signing`。固定证书可以让 macOS 在后续版本中继续识别同一个应用，不再因为 ad-hoc CDHash 变化而重复要求辅助功能和屏幕录制权限。
+
+本机首次安装正式版前，信任仓库中的发布公钥证书：
+
+```bash
+yarn tauri:release:trust
+```
+
+从 ad-hoc 版本切换到 `1.0.2` 时，需要最后重新授权一次：
+
+1. 先在“系统设置 → 隐私与安全性 → 辅助功能”和“屏幕录制”中删除旧的 S-Tools 记录。
+2. 安装 `1.0.2`，保持应用安装路径与后续更新一致。
+3. 重新授权辅助功能和屏幕录制。
+
+此后自动更新或在同一路径覆盖安装新版本时，会继续使用固定证书，不需要再次授权。删除或替换签名证书、改变 Bundle ID 或更换应用安装路径都会使权限重新失效。
+
+维护者首次创建发布证书：
+
+```bash
+yarn tauri:release:cert
+```
+
+私钥、P12 和密码只生成在 Git 忽略的 `release/macos-release-signing/`。公钥证书提交到 `scripts/macos-release-signing/`。GitHub Actions 需要配置以下 Secrets：
+
+- `MACOS_CERTIFICATE`：P12 文件的 Base64 内容。
+- `MACOS_CERTIFICATE_PASSWORD`：P12 密码。
+
 项目通过根目录 `.yarnrc` 固定使用淘宝 npm 镜像 `https://registry.npmmirror.com`。
 
 常用验证：
@@ -147,7 +176,7 @@ yarn tauri:build:windows
 - `src-tauri/Cargo.lock`
 - `CHANGELOG.md`
 
-当前发布版本为 `1.0.1`，对应标签 `v1.0.1`。推送 `v*` 标签后，GitHub Actions 会构建：
+当前发布版本为 `1.0.2`，对应标签 `v1.0.2`。推送 `v*` 标签后，GitHub Actions 会构建：
 
 - macOS ARM64 DMG
 - macOS ARM64 `.app.zip`
@@ -155,6 +184,6 @@ yarn tauri:build:windows
 - `latest.json`
 - `latest-v2.json`
 
-当前 macOS 使用 ad-hoc 签名、Windows 未签名，首次启动可能出现系统安全提示。ad-hoc 版本升级后，macOS 可能要求重新授予辅助功能和屏幕录制权限。
+当前 macOS 使用固定自签名证书、Windows 未签名，首次启动可能出现系统安全提示。签发身份和安装路径保持不变时，macOS 后续版本升级会复用已有辅助功能和屏幕录制授权。
 
 详细设计见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。

@@ -308,7 +308,7 @@ onBeforeUnmount(() => {
         <div>
           <strong>
             S-Tools
-            <span class="brand-version">v{{ data?.version || "1.0.1" }}</span>
+            <span class="brand-version">v{{ data?.version || "1.0.2" }}</span>
           </strong>
           <span class="brand-subtitle">轻巧的桌面工具箱</span>
         </div>
@@ -655,7 +655,7 @@ onBeforeUnmount(() => {
             <div class="update-mark"><AppIcon :size="72" /></div>
             <div>
               <span class="eyebrow">S-TOOLS DESKTOP</span>
-              <h2>版本 {{ data?.version || "1.0.1" }}</h2>
+              <h2>版本 {{ data?.version || "1.0.2" }}</h2>
               <p>更新清单来自 GitHub Release，下载后会校验 SHA256 再安装。</p>
             </div>
             <button class="primary-button" :disabled="updateChecking" @click="checkUpdate">
@@ -693,8 +693,8 @@ onBeforeUnmount(() => {
           <section class="release-notes">
             <h3>发布规则</h3>
             <p>
-              macOS 提供 DMG 与可自更新 app.zip，Windows 提供 NSIS 安装包。当前版本使用 ad-hoc
-              签名，系统可能要求首次手动放行；升级后可能需要重新授予辅助功能或屏幕录制权限。
+              macOS 提供 DMG 与可自更新 app.zip，Windows 提供 NSIS 安装包。正式版使用固定自签名证书，
+              首次打开可能需要系统放行；签发身份和安装路径不变时，升级后会复用辅助功能与屏幕录制权限。
             </p>
           </section>
         </section>
