@@ -1,6 +1,6 @@
 [package]
 name = "s-tools"
-version = "1.0.0"
+version = "1.0.1"
 description = "S-Tools cross-platform translation and screenshot utility"
 authors = ["ShakePeng"]
 edition = "2021"

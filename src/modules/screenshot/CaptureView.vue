@@ -119,6 +119,12 @@ const selectedMarkBounds = computed<CaptureRect | null>(() => {
   return mark ? selectionBounds(mark) : null;
 });
 
+const selectedMarkHasOutline = computed(() => {
+  if (selectedIndex.value == null) return true;
+  const mark = marks.value[selectedIndex.value];
+  return mark?.kind != "ellipse" && mark?.kind != "line" && mark?.kind != "arrow";
+});
+
 const dimension = computed(() => {
   if (!selection.value || !session.value) return "";
   const scale = session.value.scaleFactor || 1;
@@ -1022,7 +1028,7 @@ onBeforeUnmount(() => {
       <canvas ref="annotationCanvas" class="annotation-canvas"></canvas>
       <div
         v-if="selectedMarkBounds"
-        class="mark-selection"
+        :class="['mark-selection', { 'mark-selection--no-outline': !selectedMarkHasOutline }]"
         :style="{
           left: `${selectedMarkBounds.x}px`,
           top: `${selectedMarkBounds.y}px`,
@@ -1303,6 +1309,10 @@ onBeforeUnmount(() => {
   z-index: 1;
   border: 1px dashed rgba(255, 255, 255, 0.9);
   pointer-events: none;
+}
+
+.mark-selection--no-outline {
+  border: 0;
 }
 
 .selection-handle {
