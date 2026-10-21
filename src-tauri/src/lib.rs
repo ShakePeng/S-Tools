@@ -561,7 +561,8 @@ fn show_translation_window(
         .always_on_top(true)
         .skip_taskbar(true)
         .transparent(true)
-        .shadow(true)
+        // Windows 原生阴影会给无边框透明窗口额外加 1px 白边，与 CSS 轮廓叠成双边框。
+        .shadow(!cfg!(target_os = "windows"))
         .visible(false)
         .build()
         .map_err(|error| format!("创建翻译窗口失败：{error}"))?
