@@ -1,0 +1,84 @@
+src-tauri/src/models.rs
+  s_b3cfdcebc6c4ad::t_5c05d860ff0265 102
+  s_b3cfdcebc6c4ad::t_4663c9776f7e22 96,98,110
+  s_b3cfdcebc6c4ad::t_a07a51883faef4 59,86,129,145-146
+src/components/ProviderLogo.vue
+  s_b3cfdcebc6c4ad::t_20652a38b3e66c 2,5-8,17-23,28,46,71
+  s_b3cfdcebc6c4ad::t_a522a93297c7a8 12-16,58,76,80
+  s_b3cfdcebc6c4ad::t_ca6cfd2076f223 1,3-4,9-11,24-27,29-45,47-55,65-67,73-75,79,81-82
+  s_b3cfdcebc6c4ad::t_93b2333652e778 56-57,68-70,72
+  s_b3cfdcebc6c4ad::t_16f3595e9f19a4 59-64
+  s_b3cfdcebc6c4ad::t_6f83a73148bef3 77-78
+src/lib/ipc.ts
+  s_b3cfdcebc6c4ad::t_ddb5e57bb70567 45
+  s_b3cfdcebc6c4ad::t_4663c9776f7e22 55,57,69
+  s_b3cfdcebc6c4ad::t_5c05d860ff0265 61
+src-tauri/src/lib.rs
+  s_b3cfdcebc6c4ad::t_a2cfcd2f50acc0 49,57,59,62-69,77,88,245,298
+  s_b3cfdcebc6c4ad::t_a07a51883faef4 83-87,89-93,244,297
+src/components/UiIcon.vue
+  s_b3cfdcebc6c4ad::t_10de55988e5ce3 42
+src-tauri/src/config.rs
+  s_b3cfdcebc6c4ad::t_5c05d860ff0265 34-37,39,79-81,103-108,120-128
+  s_b3cfdcebc6c4ad::t_67328d8453d8cd 33,40-41
+  s_b3cfdcebc6c4ad::t_c9433a13c6556c 73-76
+  s_b3cfdcebc6c4ad::t_14ff2e7698e05c 71-72,95-102,109-110,116-119
+  s_b3cfdcebc6c4ad::t_edeb892a9230db 9-10
+README.md
+  s_b3cfdcebc6c4ad::t_5c05d860ff0265 5,16
+src-tauri/src/translate.rs
+  s_b3cfdcebc6c4ad::t_e080ac62d13782 437-448,468
+  s_b3cfdcebc6c4ad::t_a2cfcd2f50acc0 13-14,19,341
+  s_b3cfdcebc6c4ad::t_594048d6227471 102,144
+  s_b3cfdcebc6c4ad::t_b20f952863bf7d 292-293,295-298,317,321-340
+  s_b3cfdcebc6c4ad::t_4663c9776f7e22 18,436,449
+  s_b3cfdcebc6c4ad::t_a269069c5efd74 245,294
+  s_b3cfdcebc6c4ad::t_682445ce81ab66 466,486-491,496
+  s_b3cfdcebc6c4ad::t_e07538ef068e4d 450-451
+  s_b3cfdcebc6c4ad::t_a07a51883faef4 15-17,34,63
+  s_b3cfdcebc6c4ad::t_abdd060eea8628 342
+  s_b3cfdcebc6c4ad::t_624ae89341bf73 435
+src/shell/ShellView.vue
+  s_b3cfdcebc6c4ad::t_4663c9776f7e22 759
+  s_b3cfdcebc6c4ad::t_ca6cfd2076f223 7,507
+  s_b3cfdcebc6c4ad::t_83cf6c4dafd154 521-526,1636-1639
+  s_b3cfdcebc6c4ad::t_e59de60a8d66fe 1557,1567-1569
+  s_b3cfdcebc6c4ad::t_ddb5e57bb70567 161
+  s_b3cfdcebc6c4ad::t_b2bfa82086a05e 499-504,511,527
+  s_b3cfdcebc6c4ad::t_14ff2e7698e05c 70,734,738,750,752
+  s_b3cfdcebc6c4ad::t_fa73ed9c038436 709-710
+  s_b3cfdcebc6c4ad::t_1bb014c9243153 756-758,760-763,1570,1640,1942,2160-2186
+  s_b3cfdcebc6c4ad::t_36b20fa5b805fa 475,1939-1941
+  s_b3cfdcebc6c4ad::t_db336d9e187f08 1571
+  s_b3cfdcebc6c4ad::t_66c88debdfd618 1641
+  s_b3cfdcebc6c4ad::t_f416a8a50dd5b8 1943
+  s_b3cfdcebc6c4ad::t_0ff578b39efca1 2187
+src/types.ts
+  s_b3cfdcebc6c4ad::t_ddb5e57bb70567 38,49
+src/modules/translate/TranslateView.vue
+  s_b3cfdcebc6c4ad::t_341f8824ae71e4 295-324
+  s_b3cfdcebc6c4ad::t_a522a93297c7a8 5
+  s_b3cfdcebc6c4ad::t_3c307128961dfa 93,167
+  s_b3cfdcebc6c4ad::t_16f3595e9f19a4 384
+  s_b3cfdcebc6c4ad::t_2ecf23e72aeec1 29-30,56-66,190-201,225-228,245,276
+  s_b3cfdcebc6c4ad::t_012525159adf29 372
+  s_b3cfdcebc6c4ad::t_0f33a524804116 67,373,742-745
+  s_b3cfdcebc6c4ad::t_352b896bceea09 521-525,528,530,532,535-552,555-575,577,581-606,746
+  s_b3cfdcebc6c4ad::t_75c047e2f64eed 747
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "79c96fbdbd7aa80fb5fa1a94f867de4986d33ee6",
+  "prompts": {},
+  "sessions": {
+    "s_b3cfdcebc6c4ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c56-8d79-7120-a433-a9c3e003f3f3",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
