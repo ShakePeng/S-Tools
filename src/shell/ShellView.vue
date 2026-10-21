@@ -24,7 +24,6 @@ import {
   isSectionVisible,
   normalizeSection,
   resolveRequestedSection,
-  shellSections as sections,
   visibleSectionItems,
   type Section,
 } from "./navigation";
@@ -307,8 +306,11 @@ onBeforeUnmount(() => {
       <div class="brand">
         <AppIcon :size="38" />
         <div>
-          <strong>S-Tools</strong>
-          <span>轻巧的桌面工具箱</span>
+          <strong>
+            S-Tools
+            <span class="brand-version">v{{ data?.version || "1.0.0" }}</span>
+          </strong>
+          <span class="brand-subtitle">轻巧的桌面工具箱</span>
         </div>
       </div>
 
@@ -334,13 +336,6 @@ onBeforeUnmount(() => {
     </aside>
 
     <main class="content">
-      <header class="topbar">
-        <div>
-          <span class="eyebrow">S-TOOLS · {{ data?.version || "1.0.0" }}</span>
-          <h1>{{ sections.find((item) => item.id === section)?.label }}</h1>
-        </div>
-      </header>
-
       <div v-if="loading" class="center-state">
         <span class="spinner"></span>
         <span>正在读取本地配置…</span>
@@ -818,17 +813,23 @@ onBeforeUnmount(() => {
   padding: 4px 8px;
 }
 
-.brand strong,
-.brand span {
-  display: block;
-}
-
 .brand strong {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   font-size: 16px;
   letter-spacing: -0.02em;
 }
 
-.brand span {
+.brand-version {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 550;
+  letter-spacing: 0;
+}
+
+.brand-subtitle {
+  display: block;
   margin-top: 3px;
   color: var(--text-muted);
   font-size: var(--font-sm);
@@ -906,23 +907,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   height: 100%;
   overflow-y: auto;
-  padding: 26px 32px 42px;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  max-width: 1120px;
-  margin: 0 auto 26px;
-}
-
-.topbar h1 {
-  margin: 4px 0 0;
-  font-size: 25px;
-  font-weight: 720;
-  letter-spacing: -0.035em;
+  padding: 32px 32px 42px;
 }
 
 .eyebrow {
@@ -2307,14 +2292,6 @@ kbd {
 
   .sidebar {
     display: none;
-  }
-
-  .topbar {
-    align-items: flex-start;
-  }
-
-  .top-actions {
-    flex-direction: column;
   }
 
   .stat-grid,

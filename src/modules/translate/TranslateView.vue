@@ -97,7 +97,7 @@ async function loadPending(pending?: PendingTranslation) {
     notice.value = info.notice || "";
     editingSource.value = !text.value.trim();
     if (text.value.trim()) {
-      await translateAll();
+      void translateAll();
     }
   } catch (reason) {
     notice.value = reason instanceof Error ? reason.message : String(reason);
@@ -121,9 +121,12 @@ async function translateProvider(provider: ProviderView, requestId: string) {
     targetLang: targetFor(text.value),
   };
   try {
-    state.result = await call<ProviderResult>("translate", { request });
+    const result = await call<ProviderResult>("translate", { request });
+    if (requestId != activeRequestId.value) return;
+    state.result = result;
     state.status = "success";
   } catch (reason) {
+    if (requestId != activeRequestId.value) return;
     state.error = reason instanceof Error ? reason.message : String(reason);
     state.status = "error";
   }
@@ -140,19 +143,26 @@ async function translateAll() {
     notice.value = "请先在翻译插件中配置并启用至少一个服务";
     return;
   }
-  if (activeRequestId.value) {
-    await call("cancel_translation", { requestId: activeRequestId.value }).catch(() => undefined);
+  const requestId = crypto.randomUUID();
+  const previousRequestId = activeRequestId.value;
+  activeRequestId.value = requestId;
+  for (const provider of configuredProviders.value) {
+    const state = ensureResult(provider.id);
+    state.status = "loading";
+    state.result = null;
+    state.error = "";
+  }
+  if (previousRequestId) {
+    void call("cancel_translation", { requestId: previousRequestId }).catch(() => undefined);
   }
   notice.value = "";
-  const requestId = crypto.randomUUID();
-  activeRequestId.value = requestId;
   await Promise.all(
     configuredProviders.value.map((provider) => translateProvider(provider, requestId)),
   );
 }
 
 async function retry(provider: ProviderView) {
-  const requestId = crypto.randomUUID();
+  const requestId = activeRequestId.value || crypto.randomUUID();
   activeRequestId.value = requestId;
   await translateProvider(provider, requestId);
 }
