@@ -1,0 +1,62 @@
+src/style.css
+  s_b3cfdcebc6c4ad::t_640c06e3fe3995 151,196
+  s_b3cfdcebc6c4ad::t_9b54223ff92b81 3-6,9-14,16-25,27-31
+  s_b3cfdcebc6c4ad::t_f5122be8428b4e 50-52,107-108,110,114,120,162,164
+src-tauri/src/lib.rs
+  s_b3cfdcebc6c4ad::t_5fa861028b40ef 37-40
+  s_b3cfdcebc6c4ad::t_b7927d2db56d04 512-516,549,571-572,578,587,589,749
+  s_b3cfdcebc6c4ad::t_1466803a9d3914 576-577,585-586
+  s_b3cfdcebc6c4ad::t_45d6ffb171fccd 1047,1115-1122
+  s_b3cfdcebc6c4ad::t_5c1f9a7915482c 573-575,579-584,637-652,656-661,691
+  s_b3cfdcebc6c4ad::t_e23ee367cc92d8 610,613,653-655,662-666,668-690
+  s_b3cfdcebc6c4ad::t_8e68c2cedbc8e7 703-704,1088,1092,1105,1113
+  s_b3cfdcebc6c4ad::t_d9e49713bb73c1 1111-1112,1114
+  s_b3cfdcebc6c4ad::t_07ab46e348818a 558-563
+  s_b3cfdcebc6c4ad::t_49a652e8a2e128 732
+  s_b3cfdcebc6c4ad::t_4ebd1664d95267 526-532,543-548
+  s_b3cfdcebc6c4ad::t_91f8b09b0cc906 556-557
+  s_b3cfdcebc6c4ad::t_831095bdbc1c33 591,594,611-612
+  s_b3cfdcebc6c4ad::t_e457b74ef990e8 1130
+  s_b3cfdcebc6c4ad::t_a1e08148c07881 590,617-636,667
+  s_b3cfdcebc6c4ad::t_c3eaa7964ef0a9 692
+src/shell/ShellView.vue
+  s_b3cfdcebc6c4ad::t_f1f72d63dfc5cf 1785,1791,1819,1842,1885,1891,1909,1921-1922,1970,1976,2001-2002,2026,2047,2080,2105,2128-2129,2165,2167,2180,2199,2214-2216
+  s_b3cfdcebc6c4ad::t_2d8e7c63ad215b 947,1059,1074,1096,1763
+  s_b3cfdcebc6c4ad::t_76c54ad9195157 793-794,804-805,828,872,884,901,907,935,964,966,982,1011,1147-1148,1155,1157-1158,1190,1195,1201,1255-1256,1303,1310
+  s_b3cfdcebc6c4ad::t_7567f9045d6fff 870,1033,1120,1123,1699,1722-1723
+  s_b3cfdcebc6c4ad::t_85c1c898d2721c 1322-1323,1342,1348,1365,1385,1391,1431,1436,1459,1492,1529,1534,1540,1560-1561,1572,1630,1636,1651
+src/components/HotkeyRecorder.vue
+  s_b3cfdcebc6c4ad::t_7567f9045d6fff 226
+  s_b3cfdcebc6c4ad::t_e77ee7bd01b021 246,253
+src/modules/screenshot/CaptureView.vue
+  s_b3cfdcebc6c4ad::t_e77ee7bd01b021 1369,1391,1469,1564,1579,1639,1652,1679,1686,1695
+  s_b3cfdcebc6c4ad::t_7567f9045d6fff 1266,1270,1277,1399
+src/modules/translate/TranslateView.vue
+  s_b3cfdcebc6c4ad::t_98c54ae188e056 32,34-37,173-179,184-192,212-213,232-237,243-245,250,436
+  s_b3cfdcebc6c4ad::t_0987b47adbee0e 253
+  s_b3cfdcebc6c4ad::t_9715b8efacb91f 398,401-407,415-417,435,448-449,453,456,462-463,470-471,473-474,479,484,491-492,495,511,513,519,521-522,526,531-532,539-540,550,552,563-564,566-569,583,593-594,600-602,609-614,616-617,640-641,643,648,650-651,661,668-670,673,683,687,689,701,703-704,712,714-715,721,723,727-728,730-732,734,749-750,754-756,763-764,767
+  s_b3cfdcebc6c4ad::t_dd2df78b2ccd2c 180-183
+  s_b3cfdcebc6c4ad::t_1f1102dd5b78d8 438-439,454,457-458
+  s_b3cfdcebc6c4ad::t_d27ca40d241b92 437
+index.html
+  s_b3cfdcebc6c4ad::t_1df6bd19b8720f 6
+src/shell/OnboardingView.vue
+  s_b3cfdcebc6c4ad::t_2d8e7c63ad215b 254,314,362,368,399,405,429,435,447
+  s_b3cfdcebc6c4ad::t_7567f9045d6fff 214-215,223-226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "cd6839e1ef604073c3f37b041b06adba5831ff61",
+  "prompts": {},
+  "sessions": {
+    "s_b3cfdcebc6c4ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c56-8d79-7120-a433-a9c3e003f3f3",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
