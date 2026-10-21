@@ -1,0 +1,93 @@
+scripts/macos-dev-app/Info.plist
+  s_b3cfdcebc6c4ad::t_73a97b44834c37 1-30
+package.json
+  s_747031080b8a0f::t_d266107d6af054 14-18
+README.md
+  s_b3cfdcebc6c4ad::t_345a934f89e69e 42-47
+  s_747031080b8a0f::t_c759d97541f301 32,35-40,48-52,54-59,62-66
+  s_747031080b8a0f::t_e03736f8adecea 94
+  s_747031080b8a0f::t_158054d242ae1c 33-34,53,60-61,67
+  s_b3cfdcebc6c4ad::t_9d0bf3a921b3e8 41
+src/lib/ipc.ts
+  s_b3cfdcebc6c4ad::t_9c8bda7696887e 45,56,67,78,89
+src-tauri/tauri.dev.conf.json
+  s_747031080b8a0f::t_a9c859dab92148 3
+  s_747031080b8a0f::t_158054d242ae1c 1-2,10
+  s_747031080b8a0f::t_d266107d6af054 4-9
+scripts/setup-macos-dev-signing.sh
+  s_747031080b8a0f::t_d266107d6af054 1-16,21,23-27,29-37,55-70,72-75,77-79,81-85,87-94,96
+  s_747031080b8a0f::t_590b1e8f1420e5 38,71,76,80
+  s_747031080b8a0f::t_1719a343cf2702 18-20
+  s_747031080b8a0f::t_8171afde0301da 39-47,49-50,52-54,86
+  s_747031080b8a0f::t_ea67867893d546 17,22,28,48,51,95
+src-tauri/src/translate.rs
+  s_b3cfdcebc6c4ad::t_9c8bda7696887e 29
+  s_747031080b8a0f::t_f2d8a56bb1d379 34,39
+  s_747031080b8a0f::t_564b3b76ea58be 54-62,64-65,68-70,73
+  s_b3cfdcebc6c4ad::t_c76e19df6a9acd 583-593
+  s_747031080b8a0f::t_25c2c0db5fcc10 553-582
+  s_747031080b8a0f::t_5f3949f14002a1 11-12,71,77
+  s_747031080b8a0f::t_540e5fa41d126c 25,35-38,40-41
+  s_747031080b8a0f::t_3aa2d3f64c1098 142,148-150,152
+  s_b3cfdcebc6c4ad::t_e63622ec0e4e0c 42-43
+src/modules/translate/TranslateView.vue
+  s_747031080b8a0f::t_8548ae4da88080 9,26,50-52,159-167,191,284-287,568-583
+  s_747031080b8a0f::t_39868b2bc689b7 584
+scripts/tauri-dev.mjs
+  s_747031080b8a0f::t_d266107d6af054 1-51
+src-tauri/src/config.rs
+  s_747031080b8a0f::t_540e5fa41d126c 29-32,59-60,62,65-73,75-76,78,80-82
+  s_747031080b8a0f::t_e03736f8adecea 61,63-64,74,77,79
+src-tauri/src/models.rs
+  s_b3cfdcebc6c4ad::t_9c8bda7696887e 148
+  s_747031080b8a0f::t_bb5fdba743f92e 60,86,97,108,119,130
+  s_747031080b8a0f::t_540e5fa41d126c 56,82,93,104,115,126
+src/shell/ShellView.vue
+  s_b3cfdcebc6c4ad::t_9c8bda7696887e 157,743,747,756,761
+  s_b3cfdcebc6c4ad::t_551b450f91a36c 782
+  s_747031080b8a0f::t_e03736f8adecea 425
+src-tauri/src/platform/macos.m
+  s_747031080b8a0f::t_8548ae4da88080 57-61
+scripts/macos-dev-sign-runner.sh
+  s_b3cfdcebc6c4ad::t_73a97b44834c37 8-9,24-36
+  s_b3cfdcebc6c4ad::t_be42185e17ae5e 10,23
+  s_747031080b8a0f::t_d266107d6af054 1-7,11-22
+src-tauri/src/selection.rs
+  s_747031080b8a0f::t_8548ae4da88080 13-17,23-25,95
+src-tauri/src/lib.rs
+  s_b3cfdcebc6c4ad::t_23e1411f390359 874-882
+  s_b3cfdcebc6c4ad::t_9bbb1117deded1 873,883
+  s_747031080b8a0f::t_8548ae4da88080 399-402
+  s_747031080b8a0f::t_540e5fa41d126c 175-177,208
+  s_b3cfdcebc6c4ad::t_7a651471d8ac3f 872
+src/types.ts
+  s_b3cfdcebc6c4ad::t_9c8bda7696887e 42
+scripts/tauri-dev-app.mjs
+  s_747031080b8a0f::t_d266107d6af054 1-45
+src-tauri/Cargo.lock
+  s_747031080b8a0f::t_fef0c22ad72cb3 1091-1092,2047,2844,4429,4436,4730,5172,6594
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "16fd1b9275366a142d187331bf730552c45e3658",
+  "prompts": {},
+  "sessions": {
+    "s_747031080b8a0f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c11-a953-78f2-b6e3-68f0249ae693",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    },
+    "s_b3cfdcebc6c4ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c56-8d79-7120-a433-a9c3e003f3f3",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
