@@ -179,6 +179,8 @@ fn save_provider(
         .into_iter()
         .find(|provider| provider.id == input.id)
         .ok_or_else(|| "翻译服务不存在".to_string())?;
+    drop(config);
+    let _ = app.emit("app://providers-changed", ());
     Ok(view)
 }
 
@@ -203,10 +205,13 @@ fn set_provider_enabled(
     }
     provider.enabled = enabled;
     config::save_config(&app, &config)?;
-    translate::provider_views(&config.providers)
+    let view = translate::provider_views(&config.providers)
         .into_iter()
         .find(|provider| provider.id == id)
-        .ok_or_else(|| "翻译服务不存在".to_string())
+        .ok_or_else(|| "翻译服务不存在".to_string())?;
+    drop(config);
+    let _ = app.emit("app://providers-changed", ());
+    Ok(view)
 }
 
 #[tauri::command]

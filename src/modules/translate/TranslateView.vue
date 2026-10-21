@@ -34,6 +34,7 @@ const editingSource = ref(false);
 const sourceInput = ref<HTMLTextAreaElement | null>(null);
 const translateWindow = ref<HTMLElement | null>(null);
 let unlistenSelection: (() => void) | undefined;
+let unlistenProviders: (() => void) | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let resizeFrame = 0;
 let lastReportedHeight = 0;
@@ -106,6 +107,13 @@ async function loadPending(pending?: PendingTranslation) {
     loading.value = false;
     if (!text.value.trim()) await focusSource();
   }
+}
+
+async function refreshProviders() {
+  const data = await bootstrap();
+  providers.value = data.providers;
+  permissions.value = data.permissions;
+  for (const provider of configuredProviders.value) ensureResult(provider.id);
 }
 
 async function translateProvider(provider: ProviderView, requestId: string) {
@@ -272,6 +280,11 @@ onMounted(async () => {
     unlistenSelection = await listen<PendingTranslation>("translate://selection", (event) => {
       loadPending(event.payload);
     });
+    unlistenProviders = await listen("app://providers-changed", () => {
+      refreshProviders().catch((reason) => {
+        notice.value = reason instanceof Error ? reason.message : String(reason);
+      });
+    });
   }
   await nextTick();
   if (isTauri() && translateWindow.value) {
@@ -285,6 +298,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeydown);
   document.removeEventListener("pointerdown", onDocumentPointerDown);
   unlistenSelection?.();
+  unlistenProviders?.();
   resizeObserver?.disconnect();
   if (resizeFrame) cancelAnimationFrame(resizeFrame);
   document.body.style.background = previousBodyBackground;
