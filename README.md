@@ -75,10 +75,10 @@ S_TOOLS_SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" yarn tauri:dev
 yarn tauri:release:trust
 ```
 
-从 ad-hoc 版本切换到 `1.0.3` 时，需要最后重新授权一次：
+从 ad-hoc 版本切换到 `1.0.4` 时，需要最后重新授权一次：
 
 1. 先在“系统设置 → 隐私与安全性 → 辅助功能”和“屏幕录制”中删除旧的 S-Tools 记录。
-2. 安装 `1.0.3`，保持应用安装路径与后续更新一致。
+2. 安装 `1.0.4`，保持应用安装路径与后续更新一致。
 3. 重新授权辅助功能和屏幕录制。
 
 此后自动更新或在同一路径覆盖安装新版本时，会继续使用固定证书，不需要再次授权。删除或替换签名证书、改变 Bundle ID 或更换应用安装路径都会使权限重新失效。
@@ -176,7 +176,7 @@ yarn tauri:build:windows
 - `src-tauri/Cargo.lock`
 - `CHANGELOG.md`
 
-当前发布版本为 `1.0.3`，对应标签 `v1.0.3`。推送 `v*` 标签后，GitHub Actions 会构建：
+当前发布版本为 `1.0.4`，对应标签 `v1.0.4`。推送 `v*` 标签后，GitHub Actions 会构建：
 
 - macOS ARM64 DMG
 - macOS ARM64 `.app.zip`

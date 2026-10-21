@@ -21,7 +21,7 @@ export function assetUrl(path: string): string {
 }
 
 export const mockBootstrap: BootstrapData = {
-  version: "1.0.3",
+  version: "1.0.4",
   settings: {
     schemaVersion: 1,
     hotkeys: { translate: "Alt+D", screenshot: "F1" },

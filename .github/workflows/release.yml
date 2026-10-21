@@ -111,8 +111,12 @@ jobs:
           security list-keychains -d user -s \
             "$keychain_path" \
             $(security list-keychains -d user | tr -d '"')
-          # codesign only needs the identity; adding a trusted root requires UI
-          # authorization on the runner and hangs in non-interactive CI.
+          sudo -n security add-trusted-cert \
+            -d \
+            -r trustRoot \
+            -p codeSign \
+            -k /Library/Keychains/System.keychain \
+            scripts/macos-release-signing/s-tools-release-signing.cer
           security find-identity -v -p codesigning "$keychain_path" |
             grep -Fq '"S-Tools Release Signing"'
 

@@ -308,7 +308,7 @@ onBeforeUnmount(() => {
         <div>
           <strong>
             S-Tools
-            <span class="brand-version">v{{ data?.version || "1.0.3" }}</span>
+            <span class="brand-version">v{{ data?.version || "1.0.4" }}</span>
           </strong>
           <span class="brand-subtitle">轻巧的桌面工具箱</span>
         </div>
@@ -655,7 +655,7 @@ onBeforeUnmount(() => {
             <div class="update-mark"><AppIcon :size="72" /></div>
             <div>
               <span class="eyebrow">S-TOOLS DESKTOP</span>
-              <h2>版本 {{ data?.version || "1.0.3" }}</h2>
+              <h2>版本 {{ data?.version || "1.0.4" }}</h2>
               <p>更新清单来自 GitHub Release，下载后会校验 SHA256 再安装。</p>
             </div>
             <button class="primary-button" :disabled="updateChecking" @click="checkUpdate">
