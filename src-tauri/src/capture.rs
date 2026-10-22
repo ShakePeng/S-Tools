@@ -43,6 +43,7 @@ pub fn ensure_capture_window(app: &AppHandle) -> Result<tauri::WebviewWindow, St
     .always_on_top(true)
     .skip_taskbar(true)
     .background_color(Color(11, 12, 14, 255))
+    .accept_first_mouse(true)
     .visible(false)
     .build()
     .map_err(|error| format!("创建截图覆盖窗口失败：{error}"))
