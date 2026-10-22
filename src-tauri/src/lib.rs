@@ -45,6 +45,7 @@ pub struct AppState {
     capture_ready: Arc<Mutex<HashSet<String>>>,
     pending: Mutex<PendingTranslation>,
     cancellations: Mutex<HashMap<String, CancellationToken>>,
+    update_cancellation: Mutex<Option<CancellationToken>>,
     client: reqwest::Client,
     direct_client: reqwest::Client,
     quitting: AtomicBool,
@@ -53,14 +54,14 @@ pub struct AppState {
 impl AppState {
     fn new(config: AppConfig) -> Result<Self, String> {
         let client = reqwest::Client::builder()
-            .user_agent("S-Tools/1.0.6")
+            .user_agent("S-Tools/1.0.7")
             .connect_timeout(Duration::from_secs(12))
             .timeout(Duration::from_secs(45))
             .pool_idle_timeout(Duration::from_secs(90))
             .build()
             .map_err(|error| format!("初始化网络客户端失败：{error}"))?;
         let direct_client = reqwest::Client::builder()
-            .user_agent("S-Tools/1.0.6")
+            .user_agent("S-Tools/1.0.7")
             .connect_timeout(Duration::from_secs(8))
             .timeout(Duration::from_secs(30))
             .pool_idle_timeout(Duration::from_secs(90))
@@ -73,6 +74,7 @@ impl AppState {
             capture_ready: Arc::new(Mutex::new(HashSet::new())),
             pending: Mutex::new(PendingTranslation::default()),
             cancellations: Mutex::new(HashMap::new()),
+            update_cancellation: Mutex::new(None),
             client,
             direct_client,
             quitting: AtomicBool::new(false),
@@ -468,22 +470,62 @@ async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
 #[tauri::command]
 async fn download_update(
     app: AppHandle,
+    state: State<'_, AppState>,
     url: String,
     file_name: String,
     on_event: Channel<UpdateDownloadEvent>,
 ) -> Result<String, String> {
-    updater::download_update(&app, url, file_name, on_event).await
+    let cancellation = begin_update_download(&state)?;
+    let result = updater::download_update(&app, url, file_name, on_event, &cancellation).await;
+    finish_update_download(&state);
+    result
 }
 
 #[tauri::command]
 async fn install_update(
     app: AppHandle,
+    state: State<'_, AppState>,
     url: String,
     file_name: String,
     sha256: Option<String>,
     on_event: Channel<UpdateDownloadEvent>,
 ) -> Result<UpdateInstallResult, String> {
-    updater::install_update(&app, url, file_name, sha256, on_event).await
+    let cancellation = begin_update_download(&state)?;
+    let result =
+        updater::install_update(&app, url, file_name, sha256, on_event, &cancellation).await;
+    finish_update_download(&state);
+    result
+}
+
+#[tauri::command]
+fn cancel_update(state: State<'_, AppState>) -> Result<(), String> {
+    let cancellation = state
+        .update_cancellation
+        .lock()
+        .map_err(|_| "更新取消状态锁已损坏".to_string())?
+        .take()
+        .ok_or_else(|| "没有正在进行的更新下载".to_string())?;
+    cancellation.cancel();
+    Ok(())
+}
+
+fn begin_update_download(state: &AppState) -> Result<CancellationToken, String> {
+    let mut cancellation = state
+        .update_cancellation
+        .lock()
+        .map_err(|_| "更新取消状态锁已损坏".to_string())?;
+    if cancellation.is_some() {
+        return Err("已有更新任务正在进行".into());
+    }
+    let token = CancellationToken::new();
+    *cancellation = Some(token.clone());
+    Ok(token)
+}
+
+fn finish_update_download(state: &AppState) {
+    if let Ok(mut cancellation) = state.update_cancellation.lock() {
+        *cancellation = None;
+    }
 }
 
 #[tauri::command]
@@ -1098,6 +1140,7 @@ pub fn run() {
             check_update,
             download_update,
             install_update,
+            cancel_update,
             reveal_path,
         ])
         .run(tauri::generate_context!())

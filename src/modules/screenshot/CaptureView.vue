@@ -276,6 +276,11 @@ function markIsValid(mark: AnnotationMark): boolean {
 }
 
 function onPointerDown(event: PointerEvent) {
+  if (event.button == 2) {
+    event.preventDefault();
+    void cancel();
+    return;
+  }
   if (saving.value || !session.value) return;
   if ((event.target as HTMLElement).closest(".capture-toolbar, .text-editor, .capture-cancel")) {
     return;
@@ -733,6 +738,11 @@ function onDoubleClick(event: MouseEvent) {
   void complete("copy");
 }
 
+function onContextMenu(event: MouseEvent) {
+  event.preventDefault();
+  void cancel();
+}
+
 function exportDataUrl(): string {
   if (!session.value || !canCompleteSelection(selection.value) || !imageElement.value) {
     throw new Error("截图尚未准备完成");
@@ -970,7 +980,7 @@ onBeforeUnmount(() => {
 <template>
   <main
     class="capture-root"
-    @contextmenu.prevent
+    @contextmenu="onContextMenu"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
@@ -1218,7 +1228,7 @@ onBeforeUnmount(() => {
     </div>
     <div v-if="error && imageSrc" class="capture-toast">{{ error }}</div>
     <div v-if="!selection && !loading && imageSrc" class="capture-hint">
-      拖动框选区域，单击选择窗口
+      拖动框选或单击选择窗口 · 右键 /
       <kbd>Esc</kbd>
       退出
     </div>
@@ -1249,9 +1259,11 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   z-index: 1;
-  border: 1px solid rgba(47, 154, 232, 0.9);
+  border: 3px solid rgba(47, 154, 232, 0.96);
   background: rgba(5, 6, 8, 0.28);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 0 14px rgba(47, 154, 232, 0.55);
   pointer-events: none;
   animation: capture-ready-in 120ms ease-out;
 }

@@ -9,9 +9,12 @@ use std::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::ImageEncoder;
 use tauri::{
-    window::Color, AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
-    WebviewWindowBuilder,
+    window::Color, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
+#[cfg(target_os = "macos")]
+use tauri::{LogicalPosition, LogicalSize};
+#[cfg(not(target_os = "macos"))]
+use tauri::{PhysicalPosition, PhysicalSize};
 use uuid::Uuid;
 use xcap::Monitor;
 
@@ -40,6 +43,7 @@ pub fn ensure_capture_window(app: &AppHandle) -> Result<tauri::WebviewWindow, St
     .always_on_top(true)
     .skip_taskbar(true)
     .background_color(Color(11, 12, 14, 255))
+    .accept_first_mouse(true)
     .visible(false)
     .build()
     .map_err(|error| format!("创建截图覆盖窗口失败：{error}"))
@@ -75,13 +79,24 @@ pub async fn start_capture(
         let cursor = app
             .cursor_position()
             .map_err(|error| format!("读取鼠标位置失败：{error}"))?;
+        #[cfg(target_os = "macos")]
+        let primary_scale = app
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .map(|monitor| monitor.scale_factor())
+            .unwrap_or(1.0);
+        #[cfg(not(target_os = "macos"))]
+        let primary_scale = 1.0;
         let app_for_capture = app.clone();
         let session = tauri::async_runtime::spawn_blocking(move || {
             let mut monitors =
                 Monitor::all().map_err(|error| format!("读取显示器失败：{error}"))?;
+            let (cursor_x, cursor_y) =
+                monitor_cursor_position(cursor.x, cursor.y, primary_scale);
             let monitor_index = monitors
                 .iter()
-                .position(|monitor| monitor_contains_cursor(monitor, cursor.x, cursor.y))
+                .position(|monitor| monitor_contains_cursor(monitor, cursor_x, cursor_y))
                 .unwrap_or(0);
             if monitors.is_empty() {
                 return Err("没有检测到可截图的显示器".to_string());
@@ -105,12 +120,18 @@ pub async fn start_capture(
                 backing_scale,
                 coordinates_are_physical,
             );
-            let (physical_x, physical_y) = physical_monitor_position(
-                monitor_x,
-                monitor_y,
-                backing_scale,
-                coordinates_are_physical,
-            );
+            #[cfg(target_os = "macos")]
+            let (window_x, window_y) = (logical_x, logical_y);
+            #[cfg(not(target_os = "macos"))]
+            let (window_x, window_y) = {
+                let (x, y) = physical_monitor_position(
+                    monitor_x,
+                    monitor_y,
+                    backing_scale,
+                    coordinates_are_physical,
+                );
+                (x as f64, y as f64)
+            };
             let window_rects = crate::platform::window_rects_for_display(
                 monitor_x,
                 monitor_y,
@@ -136,8 +157,8 @@ pub async fn start_capture(
                 monitor_id,
                 display_id: monitor_id,
                 image_path: image_path.to_string_lossy().to_string(),
-                position_x: physical_x as f64,
-                position_y: physical_y as f64,
+                position_x: window_x,
+                position_y: window_y,
                 width: logical_width,
                 height: logical_height,
                 scale_factor: backing_scale,
@@ -192,18 +213,33 @@ pub async fn start_capture(
         return Err(error);
     }
 
-    window
-        .set_position(PhysicalPosition::new(
-            session.position_x.round() as i32,
-            session.position_y.round() as i32,
-        ))
-        .ok();
-    window
-        .set_size(PhysicalSize::new(
-            (session.width * session.backing_scale).round() as u32,
-            (session.height * session.backing_scale).round() as u32,
-        ))
-        .ok();
+    #[cfg(target_os = "macos")]
+    {
+        window
+            .set_position(LogicalPosition::new(
+                session.position_x,
+                session.position_y,
+            ))
+            .ok();
+        window
+            .set_size(LogicalSize::new(session.width, session.height))
+            .ok();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        window
+            .set_position(PhysicalPosition::new(
+                session.position_x.round() as i32,
+                session.position_y.round() as i32,
+            ))
+            .ok();
+        window
+            .set_size(PhysicalSize::new(
+                (session.width * session.backing_scale).round() as u32,
+                (session.height * session.backing_scale).round() as u32,
+            ))
+            .ok();
+    }
     start_ready_watchdog(app.clone(), session.session_id.clone(), ready.clone());
     let _ = window.emit("capture://started", session);
     Ok(())
@@ -341,10 +377,31 @@ fn monitor_contains_cursor(monitor: &Monitor, cursor_x: f64, cursor_y: f64) -> b
     let y = monitor.y().unwrap_or_default() as f64;
     let width = monitor.width().unwrap_or_default() as f64;
     let height = monitor.height().unwrap_or_default() as f64;
-    let scale = monitor.scale_factor().unwrap_or(1.0) as f64;
+    point_inside_monitor(cursor_x, cursor_y, x, y, width, height)
+}
+
+fn point_inside_monitor(
+    point_x: f64,
+    point_y: f64,
+    monitor_x: f64,
+    monitor_y: f64,
+    monitor_width: f64,
+    monitor_height: f64,
+) -> bool {
+    point_x >= monitor_x
+        && point_x < monitor_x + monitor_width
+        && point_y >= monitor_y
+        && point_y < monitor_y + monitor_height
+}
+
+fn monitor_cursor_position(cursor_x: f64, cursor_y: f64, primary_scale: f64) -> (f64, f64) {
     #[cfg(target_os = "macos")]
-    let (cursor_x, cursor_y) = (cursor_x / scale, cursor_y / scale);
-    cursor_x >= x && cursor_x < x + width && cursor_y >= y && cursor_y < y + height
+    return (
+        cursor_x / primary_scale.max(0.1),
+        cursor_y / primary_scale.max(0.1),
+    );
+    #[cfg(not(target_os = "macos"))]
+    return (cursor_x, cursor_y);
 }
 
 fn logical_display_frame(
@@ -362,6 +419,7 @@ fn logical_display_frame(
     }
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 fn physical_monitor_position(
     x: f64,
     y: f64,
@@ -606,5 +664,23 @@ mod tests {
             physical_monitor_position(1920.0, 0.0, 1.25, true),
             (1920, 0)
         );
+    }
+
+    #[test]
+    fn converts_primary_scale_cursor_before_monitor_lookup() {
+        #[cfg(target_os = "macos")]
+        assert_eq!(monitor_cursor_position(6000.0, 240.0, 2.0), (3000.0, 120.0));
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(monitor_cursor_position(3000.0, 240.0, 2.0), (3000.0, 240.0));
+    }
+
+    #[test]
+    fn matches_secondary_monitor_with_mixed_scale_coordinates() {
+        assert!(point_inside_monitor(
+            3000.0, 300.0, 2304.0, 114.0, 1920.0, 1080.0
+        ));
+        assert!(!point_inside_monitor(
+            6000.0, 300.0, 2304.0, 114.0, 1920.0, 1080.0
+        ));
     }
 }
