@@ -1,0 +1,63 @@
+src-tauri/src/capture.rs
+  s_b3cfdcebc6c4ad::t_64ad3cc362146b 12,14-17,81-89,94-95,98,122-124,159-160,215-241,379-396,398-403,667-684
+  s_b3cfdcebc6c4ad::t_926ccefd87feba 125-133
+  s_b3cfdcebc6c4ad::t_aff1928fd7391b 421
+CHANGELOG.md
+  s_b3cfdcebc6c4ad::t_85a5e227aa29f0 13
+  s_b3cfdcebc6c4ad::t_916eb7ae77df77 5-12,14,19
+package.json
+  s_b3cfdcebc6c4ad::t_916eb7ae77df77 4
+src-tauri/src/lib.rs
+  s_b3cfdcebc6c4ad::t_916eb7ae77df77 57,64
+  s_b3cfdcebc6c4ad::t_4a31d958936618 48,77,473,478-481,487,493-528,1136
+src-tauri/src/models.rs
+  s_b3cfdcebc6c4ad::t_d056a989b3bff6 268,274-281
+src-tauri/src/updater.rs
+  s_b3cfdcebc6c4ad::t_048cffc4f365e1 685
+  s_b3cfdcebc6c4ad::t_eaf3fe18a59fff 231-234,275-278
+  s_b3cfdcebc6c4ad::t_c9dcf90fc22dc9 13,222,230,244,274,305-307,328,331-338,340,353-366,373,376-377,386-392,407-410
+  s_b3cfdcebc6c4ad::t_d314e4017f1f67 529-533,548-636,642-684,686-714
+  s_b3cfdcebc6c4ad::t_a2dc44dc1c012a 534
+  s_b3cfdcebc6c4ad::t_830fe1a6e2dd7d 637-641
+src/lib/update.ts
+  s_b3cfdcebc6c4ad::t_c77cc8e34480d6 1-26
+src-tauri/tauri.conf.json
+  s_b3cfdcebc6c4ad::t_916eb7ae77df77 4
+src/types.ts
+  s_b3cfdcebc6c4ad::t_c77cc8e34480d6 136,138
+src-tauri/Cargo.toml
+  s_b3cfdcebc6c4ad::t_916eb7ae77df77 3
+src/lib/ipc.ts
+  s_b3cfdcebc6c4ad::t_916eb7ae77df77 24
+src/shell/ShellView.vue
+  s_b3cfdcebc6c4ad::t_3643a32fa3a0cb 737-741,756-790,794-797
+  s_b3cfdcebc6c4ad::t_916eb7ae77df77 387,734
+  s_b3cfdcebc6c4ad::t_81288988472e8a 12,45-51,79-103,254-257,275-281,283,287-291,293-299,302-306,309-313,315-327,329-334,336-350
+  s_b3cfdcebc6c4ad::t_eaf3fe18a59fff 258-259
+  s_b3cfdcebc6c4ad::t_a8c54766582a16 2160-2178,2194-2214,2234-2237
+  s_b3cfdcebc6c4ad::t_1a6541b621fce9 2238
+src/lib/update.test.ts
+  s_b3cfdcebc6c4ad::t_c77cc8e34480d6 1-22
+scripts/macos-dev-app/Info.plist
+  s_b3cfdcebc6c4ad::t_916eb7ae77df77 22,24
+README.md
+  s_b3cfdcebc6c4ad::t_916eb7ae77df77 78,81,179
+src-tauri/Cargo.lock
+  s_b3cfdcebc6c4ad::t_ab0fef97b0677d 4412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b040a2a4cca54b895beed07e876f075c4955e40e",
+  "prompts": {},
+  "sessions": {
+    "s_b3cfdcebc6c4ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c56-8d79-7120-a433-a9c3e003f3f3",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
