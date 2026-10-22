@@ -1,0 +1,41 @@
+README.md
+  s_b73ac04311ee00::t_9991f934b97911 179
+src-tauri/src/capture.rs
+  s_b73ac04311ee00::t_c6a1cae1622e7d 46
+scripts/macos-dev-app/Info.plist
+  s_b73ac04311ee00::t_9991f934b97911 22,24
+src-tauri/tauri.conf.json
+  s_b73ac04311ee00::t_9991f934b97911 4
+CHANGELOG.md
+  s_b73ac04311ee00::t_9991f934b97911 5-12
+src-tauri/Cargo.toml
+  s_b73ac04311ee00::t_9991f934b97911 3
+src/lib/ipc.ts
+  s_b73ac04311ee00::t_9991f934b97911 24
+src/modules/screenshot/CaptureView.vue
+  s_b73ac04311ee00::t_c6a1cae1622e7d 279-283,741-745,983,1231,1262,1264-1266
+src/shell/ShellView.vue
+  s_b73ac04311ee00::t_9991f934b97911 387,734
+package.json
+  s_b73ac04311ee00::t_9991f934b97911 4
+src-tauri/src/lib.rs
+  s_b73ac04311ee00::t_9991f934b97911 57,64
+src-tauri/Cargo.lock
+  s_b73ac04311ee00::t_d87c54c886abb9 4412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b491d05fccb551892862989d038275a4b6bf36fd",
+  "prompts": {},
+  "sessions": {
+    "s_b73ac04311ee00": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1621b-abba-7883-8058-c5c3f4432467",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
