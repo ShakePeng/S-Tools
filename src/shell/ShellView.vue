@@ -9,6 +9,7 @@ import UiIcon from "../components/UiIcon.vue";
 import { truncate } from "../lib/format";
 import { formatHotkey } from "../lib/hotkeys";
 import { bootstrap, call, isTauri } from "../lib/ipc";
+import { downloadProgressLabel, updatePercent } from "../lib/update";
 import type {
   AppSettings,
   BootstrapData,
@@ -40,9 +41,14 @@ const providerSaving = ref(false);
 const settingsSaving = ref(false);
 const featureSaving = ref(false);
 const updateChecking = ref(false);
-const updateInstalling = ref(false);
 const updateInfo = ref<UpdateInfo | null>(null);
-const updateProgress = ref(0);
+type UpdatePhase = "idle" | "downloading" | "verifying" | "installing";
+const updatePhase = ref<UpdatePhase>("idle");
+const updateDownloaded = ref(0);
+const updateTotal = ref<number | null>(null);
+const updateCancelled = ref(false);
+const updateCancelRequested = ref(false);
+const updateCancelPending = ref(false);
 const updateError = ref("");
 const updateMessage = ref("");
 const settingsForm = reactive<SettingsInput>({
@@ -70,6 +76,31 @@ const insecureBaseUrl = computed(
     editing.value?.baseUrl.trim().toLowerCase().startsWith("http://"),
 );
 const visibleSections = computed(() => visibleSectionItems(settingsForm));
+const updateBusy = computed(() => updatePhase.value != "idle");
+const updatePercentage = computed(() =>
+  updatePercent(updateDownloaded.value, updateTotal.value),
+);
+const updateCanRetry = computed(
+  () => !updateBusy.value && Boolean(updateError.value || updateCancelled.value),
+);
+const updateStatusText = computed(() => {
+  if (updatePhase.value == "downloading") {
+    const progress = downloadProgressLabel(updateDownloaded.value, updateTotal.value);
+    return updatePercentage.value == null
+      ? `正在下载 · ${progress}`
+      : `正在下载 ${updatePercentage.value}% · ${progress}`;
+  }
+  if (updatePhase.value == "verifying") return "正在校验安装包…";
+  if (updatePhase.value == "installing") return "正在启动安装，应用即将重启…";
+  return "";
+});
+const updateButtonLabel = computed(() => {
+  if (updatePhase.value == "downloading") return "下载中…";
+  if (updatePhase.value == "verifying") return "校验中…";
+  if (updatePhase.value == "installing") return "安装中…";
+  if (updateCanRetry.value) return "重试下载";
+  return updateInfo.value?.selfUpdate ? "下载并安装" : "下载安装包";
+});
 
 function notify(message: string) {
   toast.value = message;
@@ -220,6 +251,12 @@ async function openPermission(kind: "accessibility" | "screenRecording") {
 
 async function checkUpdate() {
   updateChecking.value = true;
+  updatePhase.value = "idle";
+  updateDownloaded.value = 0;
+  updateTotal.value = null;
+  updateCancelled.value = false;
+  updateCancelRequested.value = false;
+  updateCancelPending.value = false;
   updateError.value = "";
   updateMessage.value = "";
   try {
@@ -235,43 +272,82 @@ async function checkUpdate() {
 
 async function installUpdate() {
   if (!updateInfo.value) return;
-  updateInstalling.value = true;
+  const info = updateInfo.value;
+  updatePhase.value = "downloading";
+  updateDownloaded.value = 0;
+  updateTotal.value = null;
+  updateCancelled.value = false;
+  updateCancelRequested.value = false;
+  updateCancelPending.value = false;
   updateError.value = "";
-  updateProgress.value = 0;
+  updateMessage.value = "";
   try {
     const channel = new Channel<UpdateProgressEvent>();
-    let downloaded = 0;
-    let total = 0;
     channel.onmessage = (event) => {
-      if (event.event == "Started") total = event.contentLength || 0;
+      if (event.event == "Started") {
+        updatePhase.value = "downloading";
+        updateDownloaded.value = 0;
+        updateTotal.value = event.contentLength || null;
+      }
       if (event.event == "Progress") {
-        downloaded += event.chunkLength || 0;
-        updateProgress.value = total ? Math.min(100, Math.round((downloaded / total) * 100)) : 0;
+        updateDownloaded.value = event.downloaded || 0;
+        updateTotal.value = event.contentLength || null;
+      }
+      if (event.event == "Verifying") updatePhase.value = "verifying";
+      if (event.event == "Installing") updatePhase.value = "installing";
+      if (event.event == "Finished" && updateTotal.value) {
+        updateDownloaded.value = updateTotal.value;
       }
     };
-    const result = await call<UpdateInstallResult>("install_update", {
-      url: updateInfo.value.downloadUrl,
-      fileName: updateInfo.value.fileName,
-      sha256: updateInfo.value.sha256,
-      onEvent: channel,
-    });
-    if (result.installed) {
-      updateMessage.value = "正在安装并重启…";
-      return;
-    }
-    if (updateInfo.value.manualDownloadUrl) {
-      const path = await call<string>("download_update", {
-        url: updateInfo.value.manualDownloadUrl,
-        fileName: updateInfo.value.manualFileName || updateInfo.value.fileName,
+    if (info.selfUpdate) {
+      const result = await call<UpdateInstallResult>("install_update", {
+        url: info.downloadUrl,
+        fileName: info.fileName,
+        sha256: info.sha256,
         onEvent: channel,
       });
-      await call("reveal_path", { path });
-      updateMessage.value = "安装包已下载，请手动完成安装";
+      if (result.installed) {
+        updatePhase.value = "installing";
+        updateMessage.value = "正在安装并重启…";
+        return;
+      }
     }
+    if (!info.manualDownloadUrl) {
+      throw new Error("更新清单缺少手动下载地址");
+    }
+    updatePhase.value = "downloading";
+    updateDownloaded.value = 0;
+    updateTotal.value = null;
+    const path = await call<string>("download_update", {
+      url: info.manualDownloadUrl,
+      fileName: info.manualFileName || info.fileName,
+      onEvent: channel,
+    });
+    await call("reveal_path", { path });
+    updateMessage.value = "安装包已下载，请手动完成安装";
   } catch (reason) {
-    updateError.value = reason instanceof Error ? reason.message : String(reason);
+    const message = reason instanceof Error ? reason.message : String(reason);
+    if (updateCancelRequested.value || message.includes("更新下载已取消")) {
+      updateCancelled.value = true;
+    } else {
+      updateError.value = message;
+    }
   } finally {
-    updateInstalling.value = false;
+    updateCancelPending.value = false;
+    if (updatePhase.value != "installing") updatePhase.value = "idle";
+  }
+}
+
+async function cancelUpdateDownload() {
+  if (updatePhase.value != "downloading" || updateCancelPending.value) return;
+  updateCancelRequested.value = true;
+  updateCancelPending.value = true;
+  try {
+    await call("cancel_update");
+  } catch (reason) {
+    updateCancelRequested.value = false;
+    updateCancelPending.value = false;
+    updateError.value = reason instanceof Error ? reason.message : String(reason);
   }
 }
 
@@ -308,7 +384,7 @@ onBeforeUnmount(() => {
         <div>
           <strong>
             S-Tools
-            <span class="brand-version">v{{ data?.version || "1.0.5" }}</span>
+            <span class="brand-version">v{{ data?.version || "1.0.6" }}</span>
           </strong>
           <span class="brand-subtitle">轻巧的桌面工具箱</span>
         </div>
@@ -655,10 +731,14 @@ onBeforeUnmount(() => {
             <div class="update-mark"><AppIcon :size="72" /></div>
             <div>
               <span class="eyebrow">S-TOOLS DESKTOP</span>
-              <h2>版本 {{ data?.version || "1.0.5" }}</h2>
+              <h2>版本 {{ data?.version || "1.0.6" }}</h2>
               <p>更新清单来自 GitHub Release，下载后会校验 SHA256 再安装。</p>
             </div>
-            <button class="primary-button" :disabled="updateChecking" @click="checkUpdate">
+            <button
+              class="primary-button"
+              :disabled="updateChecking || updateBusy"
+              @click="checkUpdate"
+            >
               <span v-if="updateChecking" class="spinner"></span>
               {{ updateChecking ? "检查中…" : "检查更新" }}
             </button>
@@ -673,14 +753,48 @@ onBeforeUnmount(() => {
               <span>{{ updateInfo.selfUpdate ? "自动安装" : "手动安装" }}</span>
             </div>
             <p class="update-notes">{{ updateInfo.notes || "本次更新暂无说明。" }}</p>
-            <div v-if="updateInstalling" class="progress-track">
-              <span :style="{ width: `${updateProgress}%` }"></span>
+            <div
+              v-if="updatePhase === 'downloading' || updatePhase === 'verifying'"
+              class="update-progress"
+            >
+              <div class="update-progress-meta">{{ updateStatusText }}</div>
+              <div
+                :class="['progress-track', { indeterminate: updatePercentage == null }]"
+              >
+                <span
+                  v-if="updatePercentage != null"
+                  :style="{ width: `${updatePercentage}%` }"
+                ></span>
+                <span v-else></span>
+              </div>
             </div>
-            <button class="primary-button" :disabled="updateInstalling" @click="installUpdate">
-              {{ updateInstalling ? `下载中 ${updateProgress}%` : updateInfo.selfUpdate ? "下载并安装" : "下载安装包" }}
-            </button>
+            <div v-else-if="updatePhase === 'installing'" class="update-stage">
+              <span class="spinner"></span>
+              {{ updateStatusText }}
+            </div>
+            <div class="update-card-actions">
+              <button
+                class="primary-button"
+                :disabled="updateBusy"
+                @click="installUpdate"
+              >
+                {{ updateButtonLabel }}
+              </button>
+              <button
+                v-if="updatePhase === 'downloading'"
+                class="ghost-button"
+                :disabled="updateCancelPending"
+                @click="cancelUpdateDownload"
+              >
+                {{ updateCancelPending ? "正在取消…" : "取消下载" }}
+              </button>
+            </div>
           </section>
 
+          <div v-if="updateCancelled" class="notice-box neutral">
+            <UiIcon name="close" />
+            更新下载已取消，可点击“重试下载”重新开始。
+          </div>
           <div v-if="updateMessage" class="notice-box success">
             <UiIcon name="check" />
             {{ updateMessage }}
@@ -2043,9 +2157,27 @@ kbd {
   white-space: pre-wrap;
 }
 
+.update-progress {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.update-progress-meta,
+.update-stage {
+  color: var(--text-soft);
+  font-size: var(--font-sm);
+}
+
+.update-stage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+}
+
 .progress-track {
   height: 5px;
-  margin-bottom: 16px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--bg-soft);
@@ -2057,6 +2189,27 @@ kbd {
   border-radius: inherit;
   background: var(--accent);
   transition: width 200ms ease;
+}
+
+.progress-track.indeterminate span {
+  width: 34%;
+  animation: update-progress-indeterminate 1.1s ease-in-out infinite;
+}
+
+.update-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+@keyframes update-progress-indeterminate {
+  from {
+    transform: translateX(-115%);
+  }
+  to {
+    transform: translateX(330%);
+  }
 }
 
 .notice-box {
@@ -2076,6 +2229,11 @@ kbd {
 .notice-box.danger {
   background: rgba(255, 107, 104, 0.1);
   color: var(--danger);
+}
+
+.notice-box.neutral {
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text-soft);
 }
 
 .release-notes {

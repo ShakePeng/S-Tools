@@ -133,7 +133,7 @@ export interface UpdateInstallResult {
 }
 
 export interface UpdateProgressEvent {
-  event: "Started" | "Progress" | "Finished";
+  event: "Started" | "Progress" | "Verifying" | "Installing" | "Finished";
   contentLength?: number;
-  chunkLength?: number;
+  downloaded?: number;
 }

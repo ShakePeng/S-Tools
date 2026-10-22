@@ -265,13 +265,20 @@ pub struct UpdateInstallResult {
     pub saved_path: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "event")]
 pub enum UpdateDownloadEvent {
     #[serde(rename = "Started")]
     Started { content_length: Option<u64> },
     #[serde(rename = "Progress")]
-    Progress { chunk_length: u64 },
+    Progress {
+        downloaded: u64,
+        content_length: Option<u64>,
+    },
+    #[serde(rename = "Verifying")]
+    Verifying,
+    #[serde(rename = "Installing")]
+    Installing,
     #[serde(rename = "Finished")]
     Finished,
 }
