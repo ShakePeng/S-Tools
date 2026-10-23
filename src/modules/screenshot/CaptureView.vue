@@ -208,6 +208,12 @@ function startsNewSelection() {
   draft.value = null;
 }
 
+function beginSelection(point: Point) {
+  startsNewSelection();
+  interaction.value = { kind: "new", start: point };
+  selection.value = { ...point, width: 0, height: 0 };
+}
+
 function createMark(kind: Exclude<EditorTool, "select" | "text">, start: Point): AnnotationMark {
   const id = nextMarkId++;
   const color = appearance.colorPreset;
@@ -275,8 +281,7 @@ function onPointerDown(event: PointerEvent) {
   const local = localPoint(point);
 
   if (!selection.value) {
-    interaction.value = { kind: "new", start: point };
-    selection.value = { ...point, width: 0, height: 0 };
+    beginSelection(point);
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     return;
   }
@@ -295,6 +300,7 @@ function onPointerDown(event: PointerEvent) {
   }
 
   if (tool.value == "select") {
+    // 先判断是否明确抓取了标注手柄或选区手柄，避免普通拖动被误判为移动旧选区。
     if (selectedIndex.value != null) {
       const selected = marks.value[selectedIndex.value];
       if (selected) {
@@ -339,28 +345,13 @@ function onPointerDown(event: PointerEvent) {
       return;
     }
 
-    if (contains(selection.value, point)) {
-      selectedIndex.value = null;
-      interaction.value = {
-        kind: "selection-move",
-        start: point,
-        originalSelection: { ...selection.value },
-      };
-      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-      return;
-    }
-
-    startsNewSelection();
-    interaction.value = { kind: "new", start: point };
-    selection.value = { ...point, width: 0, height: 0 };
+    beginSelection(point);
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     return;
   }
 
   if (!contains(selection.value, point)) {
-    startsNewSelection();
-    interaction.value = { kind: "new", start: point };
-    selection.value = { ...point, width: 0, height: 0 };
+    beginSelection(point);
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     return;
   }

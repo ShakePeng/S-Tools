@@ -56,14 +56,14 @@ pub struct AppState {
 impl AppState {
     fn new(config: AppConfig) -> Result<Self, String> {
         let client = reqwest::Client::builder()
-            .user_agent("S-Tools/1.0.10")
+            .user_agent("S-Tools/1.0.11")
             .connect_timeout(Duration::from_secs(12))
             .timeout(Duration::from_secs(45))
             .pool_idle_timeout(Duration::from_secs(90))
             .build()
             .map_err(|error| format!("初始化网络客户端失败：{error}"))?;
         let direct_client = reqwest::Client::builder()
-            .user_agent("S-Tools/1.0.10")
+            .user_agent("S-Tools/1.0.11")
             .connect_timeout(Duration::from_secs(8))
             .timeout(Duration::from_secs(30))
             .pool_idle_timeout(Duration::from_secs(90))
@@ -1213,7 +1213,6 @@ pub fn run() {
                 });
             }
             let _ = capture::cleanup_stale_temp(&handle);
-            let _ = capture::ensure_capture_window(&handle);
             register_shortcuts(&handle).map_err(|error| error.to_string())?;
             apply_autostart(&handle, settings.launch_at_login)
                 .map_err(|error| error.to_string())?;

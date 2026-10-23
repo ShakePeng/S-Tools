@@ -83,6 +83,12 @@ pub async fn start_capture(
         app_log::warn(&app, "capture", "屏幕录制权限未授予");
         return Err("需要授予屏幕录制权限后才能截图".into());
     }
+    if let Some(window) = app.get_webview_window(CAPTURE_WINDOW_LABEL) {
+        // 预热窗口可能保留上一轮画面和尺寸；每次开始新截图都重建，避免旧内容串入。
+        window
+            .destroy()
+            .map_err(|error| format!("重置截图窗口失败：{error}"))?;
+    }
     let window = ensure_capture_window(&app).map_err(|error| {
         app_log::error(&app, "capture", &error);
         error
