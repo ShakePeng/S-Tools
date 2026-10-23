@@ -1,0 +1,98 @@
+src-tauri/src/updater.rs
+  s_66daa058167ae9::t_ba99a640182752 593-611,623-638
+  s_66daa058167ae9::t_3d7086d4a01c66 34,42-43,54-55,118,123,129-135,146,151-152,172,177
+  s_66daa058167ae9::t_67546777b0c330 588
+  s_66daa058167ae9::t_39b386413e57aa 33
+  s_66daa058167ae9::t_dd8b58b7bb5bea 567-587,589-592,612-622,639-640
+src-tauri/Cargo.lock
+  s_66daa058167ae9::t_94638153bfa75e 4412
+src/lib/update.test.ts
+  s_66daa058167ae9::t_ed4637872bbd20 2-7,27-40
+src-tauri/src/models.rs
+  s_66daa058167ae9::t_3c1424f1aeb162 254,259
+package.json
+  s_66daa058167ae9::t_da931bf4c30c7e 4
+scripts/macos-dev-app/Info.plist
+  s_66daa058167ae9::t_da931bf4c30c7e 22,24
+.github/workflows/release.yml
+  s_66daa058167ae9::t_49749e541b1254 314-317,326,333-342,348-350
+  s_66daa058167ae9::t_617834aad4a1d0 351
+src-tauri/tauri.conf.json
+  s_66daa058167ae9::t_da931bf4c30c7e 4
+src/modules/screenshot/CaptureView.vue
+  s_66daa058167ae9::t_f17b36e72712de 888-889,895
+src-tauri/src/app_log.rs
+  s_66daa058167ae9::t_99e7b85ac12162 1-8,10-42,45-81,85-127
+  s_66daa058167ae9::t_759c511bb53824 9
+  s_66daa058167ae9::t_fea1480d3107c6 43-44,82-84
+src-tauri/Cargo.toml
+  s_66daa058167ae9::t_da931bf4c30c7e 3
+src/lib/update.ts
+  s_66daa058167ae9::t_5cf45cbd78e6f9 21-33
+src-tauri/src/lib.rs
+  s_66daa058167ae9::t_e04a6d88ae796c 354,633,635-636,643-644
+  s_66daa058167ae9::t_3f96c3d7288e97 357-383,389,521-525,539-541,558-560
+  s_66daa058167ae9::t_da931bf4c30c7e 59,66
+  s_66daa058167ae9::t_1879fe3c7e2dbb 1129
+  s_66daa058167ae9::t_82486de7663a0c 1160-1165
+  s_66daa058167ae9::t_683e270f91301c 1131
+  s_66daa058167ae9::t_849ceb2002a635 356,607-622,628
+  s_66daa058167ae9::t_38aeb856237771 336-353
+  s_66daa058167ae9::t_6064f5dddb92aa 626-627
+  s_66daa058167ae9::t_0623fe7765c7a4 1036,1119,1191-1195
+  s_66daa058167ae9::t_c64d9147db89be 1,42
+  s_66daa058167ae9::t_8e05b96ae5d909 1108,1278-1280
+  s_66daa058167ae9::t_3a7ed17990ab52 355
+  s_66daa058167ae9::t_e94ebb63a67b93 629-632,637-642
+  s_66daa058167ae9::t_0ce0cd4f6e3c34 634
+  s_66daa058167ae9::t_b2ebdfd259343d 1075,1078,1126-1128,1130
+  s_66daa058167ae9::t_fea1480d3107c6 384-388
+  s_66daa058167ae9::t_561056142db52d 623-625
+CHANGELOG.md
+  s_66daa058167ae9::t_9d58c5046984b5 5-17
+src/types.ts
+  s_66daa058167ae9::t_afb7c7fe724c78 123,128
+src/lib/ipc.ts
+  s_66daa058167ae9::t_da931bf4c30c7e 24
+src-tauri/src/capture.rs
+  s_66daa058167ae9::t_058e18d688433d 259-285
+  s_66daa058167ae9::t_48ab5cc57b206c 371-378
+  s_66daa058167ae9::t_ce86bc0bdaf072 684
+  s_66daa058167ae9::t_364bcc343c6d14 293-294,364-367,369,745-755
+  s_66daa058167ae9::t_e2e8e2375f0a38 379
+  s_66daa058167ae9::t_005d4dd684a03a 22,28-47,83,86-90,93-95,98-113,116,226,240,255,287-291,295-298,340-341,346-358,361-363,368,412,676,756
+  s_66daa058167ae9::t_a006a91b742a2c 380
+  s_66daa058167ae9::t_8081f79ac21ba1 757
+README.md
+  s_66daa058167ae9::t_da931bf4c30c7e 179
+src/shell/ShellView.vue
+  s_66daa058167ae9::t_d89469a98fd497 865-876
+  s_66daa058167ae9::t_5dc09898f342b4 12,282-297,336,340,366
+  s_66daa058167ae9::t_da931bf4c30c7e 438,785
+  s_66daa058167ae9::t_245d1e8e6a7e1f 2271
+  s_66daa058167ae9::t_43c1313f8bfb3f 198-199
+  s_66daa058167ae9::t_db798b74cfffeb 415
+  s_66daa058167ae9::t_29a76ad686209a 2163
+  s_66daa058167ae9::t_5ab8dec0e8b43b 2177-2183,2251
+  s_66daa058167ae9::t_7ea3b95701158d 2270,2273-2276
+  s_66daa058167ae9::t_9c24d3a82752f2 821,824-826,2257,2265-2269,2272,2277
+  s_66daa058167ae9::t_2173e9fc8076ae 2250
+  s_66daa058167ae9::t_5677956362fe80 788-801
+  s_66daa058167ae9::t_2c5e9535c4f074 4,71,414,416-417,426
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8bd109beb14efb6ad6ca7061d3933a6a1b6a20ad",
+  "prompts": {},
+  "sessions": {
+    "s_66daa058167ae9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16760-e557-7be0-aad2-92984b370207",
+        "model": "workbuddy-2/cn:deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
