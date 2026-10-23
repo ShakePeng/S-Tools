@@ -44,6 +44,77 @@ pub fn set_capture_window_level<R: tauri::Runtime>(window: &tauri::WebviewWindow
     }
 }
 
+#[cfg(windows)]
+pub fn windows_display_rect_for_window(window: *mut std::ffi::c_void) -> Option<(i32, i32, f64, f64)> {
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+
+    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+    let monitor = unsafe { MonitorFromWindow(window as _, MONITOR_DEFAULTTONEAREST) };
+    if monitor.is_null() || unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        return None;
+    }
+    let width = info.rcMonitor.right - info.rcMonitor.left;
+    let height = info.rcMonitor.bottom - info.rcMonitor.top;
+    (width > 0 && height > 0).then_some((
+        info.rcMonitor.left,
+        info.rcMonitor.top,
+        width as f64,
+        height as f64,
+    ))
+}
+
+#[cfg(windows)]
+pub fn windows_set_window_client_rect(
+    window: *mut std::ffi::c_void,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
+    use windows_sys::Win32::{
+        Foundation::POINT,
+        Graphics::Gdi::ClientToScreen,
+        UI::WindowsAndMessaging::{
+            GetClientRect, GetWindowRect, MoveWindow,
+        },
+    };
+
+    let mut outer = unsafe { std::mem::zeroed() };
+    let mut client = unsafe { std::mem::zeroed() };
+    if unsafe { GetWindowRect(window as _, &mut outer) } == 0
+        || unsafe { GetClientRect(window as _, &mut client) } == 0
+    {
+        return Err("读取截图窗口边界失败".into());
+    }
+    let mut client_origin = POINT { x: 0, y: 0 };
+    if unsafe { ClientToScreen(window as _, &mut client_origin) } == 0 {
+        return Err("读取截图窗口客户区原点失败".into());
+    }
+    let (move_x, move_y, outer_width, outer_height) = compensated_window_bounds(
+        (outer.left, outer.top, outer.right, outer.bottom),
+        (client_origin.x, client_origin.y),
+        (client.right - client.left, client.bottom - client.top),
+        (x, y, width, height),
+    );
+    if unsafe {
+        MoveWindow(
+            window as _,
+            move_x,
+            move_y,
+            outer_width,
+            outer_height,
+            0,
+        )
+    } == 0
+    {
+        return Err("移动截图窗口失败".into());
+    }
+    Ok(())
+}
+
 pub fn window_rects_for_display(
     display_x: f64,
     display_y: f64,
@@ -257,6 +328,20 @@ fn is_system_window_class(class_name: &str) -> bool {
     )
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn compensated_window_bounds(
+    outer: (i32, i32, i32, i32),
+    client_origin: (i32, i32),
+    client: (i32, i32),
+    target: (i32, i32, i32, i32),
+) -> (i32, i32, i32, i32) {
+    let border_x = client_origin.0 - outer.0;
+    let border_y = client_origin.1 - outer.1;
+    let outer_width = target.2 + (outer.2 - outer.0) - client.0;
+    let outer_height = target.3 + (outer.3 - outer.1) - client.1;
+    (target.0 - border_x, target.1 - border_y, outer_width, outer_height)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,5 +409,15 @@ mod tests {
         assert!(is_system_window_class("Progman"));
         assert!(is_system_window_class("Shell_TrayWnd"));
         assert!(!is_system_window_class("Chrome_WidgetWin_1"));
+    }
+
+    #[test]
+    fn compensates_client_origin_for_capture_window() {
+        let outer = (-8, -1, 1928, 1088);
+        let client_origin = (0, 0);
+        assert_eq!(
+            compensated_window_bounds(outer, client_origin, (1920, 1080), (0, 0, 1920, 1080)),
+            (-8, -1, 1936, 1089)
+        );
     }
 }

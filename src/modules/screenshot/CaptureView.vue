@@ -923,15 +923,21 @@ onMounted(async () => {
     unlistenEnded = await listen("capture://ended", () => {
       resetCaptureView();
     });
-    const active = await call<CaptureSession | null>("get_active_capture_session");
-    if (active) {
-      void loadCaptureSession(active);
-    }
+    await loadActiveSession();
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason);
+    const message = reason instanceof Error ? reason.message : String(reason);
+    void call("log_capture_error", { message: `截图页面初始化失败：${message}` }).catch(() => undefined);
+    error.value = message;
     loading.value = false;
   }
 });
+
+async function loadActiveSession() {
+  const active = await call<CaptureSession | null>("get_active_capture_session");
+  if (active) {
+    await loadCaptureSession(active);
+  }
+}
 
 onBeforeUnmount(() => {
   loadGeneration += 1;
@@ -946,7 +952,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main
-    class="capture-root"
+    :class="['capture-root', { 'capture-root--loading': loading }]"
     @contextmenu="onContextMenu"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
@@ -1200,6 +1206,11 @@ onBeforeUnmount(() => {
   background: #0b0c0e;
   cursor: crosshair;
   user-select: none;
+}
+
+.capture-root--loading {
+  background: #0b0c0e;
+  cursor: default;
 }
 
 .capture-image {

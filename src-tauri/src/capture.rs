@@ -8,11 +8,10 @@ use std::{
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::ImageEncoder;
-use tauri::{
-    window::Color, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
-};
+use tauri::{window::Color, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::LogicalSize;
 #[cfg(target_os = "macos")]
-use tauri::{LogicalPosition, LogicalSize};
+use tauri::LogicalPosition;
 #[cfg(not(target_os = "macos"))]
 use tauri::{PhysicalPosition, PhysicalSize};
 use uuid::Uuid;
@@ -166,18 +165,12 @@ pub async fn start_capture(
                 backing_scale,
                 coordinates_are_physical,
             );
-            #[cfg(target_os = "macos")]
-            let (window_x, window_y) = (logical_x, logical_y);
-            #[cfg(not(target_os = "macos"))]
-            let (window_x, window_y) = {
-                let (x, y) = physical_monitor_position(
-                    monitor_x,
-                    monitor_y,
-                    backing_scale,
-                    coordinates_are_physical,
-                );
-                (x as f64, y as f64)
-            };
+            let (window_x, window_y) = physical_monitor_position(
+                monitor_x,
+                monitor_y,
+                backing_scale,
+                coordinates_are_physical,
+            );
             let window_rects = crate::platform::window_rects_for_display(
                 monitor_x,
                 monitor_y,
@@ -203,8 +196,8 @@ pub async fn start_capture(
                 monitor_id,
                 display_id: monitor_id,
                 image_path: image_path.to_string_lossy().to_string(),
-                position_x: window_x,
-                position_y: window_y,
+                position_x: window_x as f64,
+                position_y: window_y as f64,
                 width: logical_width,
                 height: logical_height,
                 scale_factor: backing_scale,
@@ -262,31 +255,22 @@ pub async fn start_capture(
         return Err(error);
     }
 
-    let position_result = {
-        #[cfg(target_os = "macos")]
-        {
-            window
-                .set_position(LogicalPosition::new(session.position_x, session.position_y))
-                .and_then(|_| window.set_size(LogicalSize::new(session.width, session.height)))
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            window
-                .set_position(PhysicalPosition::new(
-                    session.position_x.round() as i32,
-                    session.position_y.round() as i32,
-                ))
-                .and_then(|_| {
-                    window.set_size(PhysicalSize::new(
-                        (session.width * session.backing_scale).round() as u32,
-                        (session.height * session.backing_scale).round() as u32,
-                    ))
-                })
-        }
-    };
+    let position_result = window
+        .set_position(PhysicalPosition::new(
+            session.position_x.round() as i32,
+            session.position_y.round() as i32,
+        ))
+        .and_then(|_| window.set_size(LogicalSize::new(session.width, session.height)));
     if let Err(error) = position_result {
         cleanup_session(&app, sessions, ready, &session.session_id);
         let message = format!("设置截图窗口失败：{error}");
+        app_log::error(&app, "capture", &message);
+        return Err(message);
+    }
+    #[cfg(windows)]
+    if let Err(error) = fit_capture_window_to_display(&window) {
+        cleanup_session(&app, sessions, ready, &session.session_id);
+        let message = format!("校准截图窗口失败：{error}");
         app_log::error(&app, "capture", &message);
         return Err(message);
     }
@@ -296,12 +280,8 @@ pub async fn start_capture(
         format!("已抓图，等待截图界面就绪：{}", session.session_id),
     );
     start_ready_watchdog(app.clone(), session.session_id.clone(), ready.clone());
-    if let Err(error) = window.emit("capture://started", session.clone()) {
-        cleanup_session(&app, sessions, ready, &session.session_id);
-        let message = format!("通知截图界面失败：{error}");
-        app_log::error(&app, "capture", &message);
-        return Err(message);
-    }
+    // WebView 重建与事件监听存在天然竞态，前端挂载后还会主动拉取当前会话。
+    let _ = window.emit("capture://started", session.clone());
     Ok(())
 }
 
@@ -339,6 +319,38 @@ fn capture_monitor_to_png(monitor: &Monitor, path: &Path) -> Result<(), String> 
     )
     .map_err(|error| format!("编码截图失败：{error}"))?;
     std::fs::write(path, bytes).map_err(|error| format!("保存临时截图失败：{error}"))
+}
+
+#[cfg(windows)]
+fn fit_capture_window_to_display(window: &tauri::WebviewWindow) -> Result<(), String> {
+    // 窗口刚创建时 hwnd 可能尚未就绪，先用 Tauri 的物理尺寸兜底，避免截图直接失败。
+    let monitor = window
+        .current_monitor()
+        .map_err(|error| format!("读取截图显示器失败：{error}"))?
+        .ok_or_else(|| "无法读取截图显示器".to_string())?;
+    let size = monitor.size();
+    let position = monitor.position();
+    window
+        .set_position(PhysicalPosition::new(position.x, position.y))
+        .and_then(|_| window.set_size(PhysicalSize::new(size.width, size.height)))
+        .map_err(|error| format!("设置截图窗口边界失败：{error}"))?;
+    if let Ok(hwnd) = window.hwnd() {
+        if let Some((display_x, display_y, display_width, display_height)) =
+            crate::platform::windows_display_rect_for_window(hwnd.0 as _)
+        {
+            if let Err(error) = crate::platform::windows_set_window_client_rect(
+                hwnd.0 as _,
+                display_x,
+                display_y,
+                display_width as i32,
+                display_height as i32,
+            ) {
+                // Win32 微调失败时保留 Tauri 已设置的显示器尺寸，不中断截图流程。
+                app_log::warn(window.app_handle(), "capture", error);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn start_ready_watchdog(app: AppHandle, session_id: String, ready: Arc<Mutex<HashSet<String>>>) {
