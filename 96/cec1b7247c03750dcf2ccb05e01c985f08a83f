@@ -1,0 +1,43 @@
+src-tauri/src/capture.rs
+  s_66daa058167ae9::t_941b5dd7bbb508 86-90
+  s_66daa058167ae9::t_9d0752eb964bda 91
+src-tauri/src/lib.rs
+  s_66daa058167ae9::t_e313724f1a0610 59,66
+package.json
+  s_66daa058167ae9::t_e313724f1a0610 4
+src-tauri/tauri.conf.json
+  s_66daa058167ae9::t_e313724f1a0610 4
+README.md
+  s_66daa058167ae9::t_e313724f1a0610 179
+scripts/macos-dev-app/Info.plist
+  s_66daa058167ae9::t_e313724f1a0610 22,24
+CHANGELOG.md
+  s_66daa058167ae9::t_e313724f1a0610 5-11
+src-tauri/Cargo.toml
+  s_66daa058167ae9::t_e313724f1a0610 3
+src/lib/ipc.ts
+  s_66daa058167ae9::t_e313724f1a0610 24
+src/modules/screenshot/CaptureView.vue
+  s_66daa058167ae9::t_b3ce5e858ef53b 211-216,348,354
+  s_66daa058167ae9::t_7180108327f54b 284,303
+src/shell/ShellView.vue
+  s_66daa058167ae9::t_e313724f1a0610 438,785
+src-tauri/Cargo.lock
+  s_66daa058167ae9::t_53058941e9a3df 4412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "96cec1b7247c03750dcf2ccb05e01c985f08a83f",
+  "prompts": {},
+  "sessions": {
+    "s_66daa058167ae9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16760-e557-7be0-aad2-92984b370207",
+        "model": "workbuddy-2/cn:deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
