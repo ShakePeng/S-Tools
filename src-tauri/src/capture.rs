@@ -12,7 +12,7 @@ use tauri::{window::Color, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindo
 use tauri::LogicalSize;
 #[cfg(target_os = "macos")]
 use tauri::LogicalPosition;
-#[cfg(windows)]
+#[cfg(not(target_os = "macos"))]
 use tauri::PhysicalPosition;
 use uuid::Uuid;
 use xcap::Monitor;
@@ -165,12 +165,18 @@ pub async fn start_capture(
                 backing_scale,
                 coordinates_are_physical,
             );
-            let (window_x, window_y) = physical_monitor_position(
-                monitor_x,
-                monitor_y,
-                backing_scale,
-                coordinates_are_physical,
-            );
+            #[cfg(target_os = "macos")]
+            let (window_x, window_y) = (logical_x, logical_y);
+            #[cfg(not(target_os = "macos"))]
+            let (window_x, window_y) = {
+                let (x, y) = physical_monitor_position(
+                    monitor_x,
+                    monitor_y,
+                    backing_scale,
+                    coordinates_are_physical,
+                );
+                (x as f64, y as f64)
+            };
             let window_rects = crate::platform::window_rects_for_display(
                 monitor_x,
                 monitor_y,
@@ -196,8 +202,8 @@ pub async fn start_capture(
                 monitor_id,
                 display_id: monitor_id,
                 image_path: image_path.to_string_lossy().to_string(),
-                position_x: window_x as f64,
-                position_y: window_y as f64,
+                position_x: window_x,
+                position_y: window_y,
                 width: logical_width,
                 height: logical_height,
                 scale_factor: backing_scale,
