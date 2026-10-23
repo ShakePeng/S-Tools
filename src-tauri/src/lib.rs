@@ -35,6 +35,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tokio_util::sync::CancellationToken;
 
 const TRAY_ID: &str = "s-tools";
+const AUTOSTART_ARG: &str = "--startup";
 const TRANSLATION_WINDOW_WIDTH: f64 = 300.0;
 const TRANSLATION_WINDOW_DEFAULT_HEIGHT: f64 = 300.0;
 const TRANSLATION_WINDOW_MIN_HEIGHT: f64 = 220.0;
@@ -977,21 +978,128 @@ fn ensure_screenshot_enabled(app: &AppHandle) -> Result<(), String> {
     }
 }
 
-fn apply_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
-    use tauri_plugin_autostart::ManagerExt;
-    let manager = app.autolaunch();
-    if matches!(manager.is_enabled(), Ok(current) if current == enabled) {
-        return Ok(());
-    }
-    if enabled {
-        manager
-            .enable()
-            .map_err(|error| format!("开启开机启动失败：{error}"))
+fn launched_from_autostart(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == AUTOSTART_ARG)
+}
+
+#[cfg(windows)]
+const WINDOWS_RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(windows)]
+const WINDOWS_AUTOSTART_NAME: &str = "S-Tools";
+
+#[cfg(all(windows, not(debug_assertions)))]
+fn windows_autostart_matches(
+    registered: &str,
+    executable: &str,
+    expected_args: &[&str],
+) -> bool {
+    let normalize = |value: &str| {
+        value
+            .trim()
+            .trim_matches('"')
+            .replace('/', "\\")
+            .to_lowercase()
+    };
+    let command = registered.trim();
+    let (registered_path, registered_args) = if let Some(rest) = command.strip_prefix('"') {
+        match rest.split_once('"') {
+            Some((path, args)) => (path, args.trim()),
+            None => return false,
+        }
     } else {
-        match manager.disable() {
-            Ok(()) => Ok(()),
-            Err(_) if matches!(manager.is_enabled(), Ok(false)) => Ok(()),
-            Err(error) => Err(format!("关闭开机启动失败：{error}")),
+        match command.split_once(char::is_whitespace) {
+            Some((path, args)) => (path, args.trim()),
+            None => (command, ""),
+        }
+    };
+    normalize(registered_path) == normalize(executable)
+        && normalize(registered_args) == normalize(&expected_args.join(" "))
+}
+
+#[cfg(all(windows, not(debug_assertions)))]
+fn read_windows_autostart() -> Result<Option<String>, String> {
+    use winreg::enums::KEY_READ;
+
+    let key = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .open_subkey_with_flags(WINDOWS_RUN_KEY, KEY_READ)
+        .map_err(|error| format!("读取 Windows 开机启动项失败：{error}"))?;
+    match key.get_value::<String, _>(WINDOWS_AUTOSTART_NAME) {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("读取 Windows 开机启动项失败：{error}")),
+    }
+}
+
+#[cfg(windows)]
+fn remove_windows_autostart() -> Result<(), String> {
+    use winreg::enums::KEY_WRITE;
+
+    let key = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .open_subkey_with_flags(WINDOWS_RUN_KEY, KEY_WRITE)
+        .map_err(|error| format!("打开 Windows 开机启动项失败：{error}"))?;
+    match key.delete_value(WINDOWS_AUTOSTART_NAME) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("移除 Windows 开机启动项失败：{error}")),
+    }
+}
+
+fn apply_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    // 开发版没有前端服务器，绝不能写入开机启动项，否则登录后会显示连接失败页。
+    #[cfg(all(windows, debug_assertions))]
+    {
+        let _ = (app, enabled);
+        return remove_windows_autostart();
+    }
+
+    #[cfg(not(all(windows, debug_assertions)))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+
+        let manager = app.autolaunch();
+
+        #[cfg(windows)]
+        {
+            let executable = std::env::current_exe()
+                .map_err(|error| format!("定位 S-Tools 可执行文件失败：{error}"))?
+                .display()
+                .to_string();
+            let registered = read_windows_autostart()?;
+            if enabled {
+                // 旧版曾把 debug 路径写进同名启动项，因此必须校验路径和静默参数。
+                let matches = registered
+                    .as_deref()
+                    .map(|value| {
+                        windows_autostart_matches(value, &executable, &[AUTOSTART_ARG])
+                    })
+                    .unwrap_or(false);
+                if !matches {
+                    manager
+                        .enable()
+                        .map_err(|error| format!("开启开机启动失败：{error}"))?;
+                }
+                return Ok(());
+            }
+            remove_windows_autostart()?;
+            return Ok(());
+        }
+
+        #[cfg(not(windows))]
+        {
+            if matches!(manager.is_enabled(), Ok(current) if current == enabled) {
+                return Ok(());
+            }
+            if enabled {
+                manager
+                    .enable()
+                    .map_err(|error| format!("开启开机启动失败：{error}"))
+            } else {
+                match manager.disable() {
+                    Ok(()) => Ok(()),
+                    Err(_) if matches!(manager.is_enabled(), Ok(false)) => Ok(()),
+                    Err(error) => Err(format!("关闭开机启动失败：{error}")),
+                }
+            }
         }
     }
 }
@@ -1177,7 +1285,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            Some(vec![AUTOSTART_ARG]),
         ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
@@ -1217,7 +1325,11 @@ pub fn run() {
             apply_autostart(&handle, settings.launch_at_login)
                 .map_err(|error| error.to_string())?;
 
-            if !settings.has_completed_onboarding {
+            let startup_args: Vec<String> = std::env::args().skip(1).collect();
+            let launched_from_autostart = launched_from_autostart(&startup_args);
+            if settings.has_completed_onboarding && launched_from_autostart {
+                // 开机启动只驻留托盘；用户点击托盘或快捷键时再显示窗口。
+            } else if !settings.has_completed_onboarding {
                 show_onboarding(&handle).map_err(|error| error.to_string())?;
             } else {
                 reveal_main_window(&handle).map_err(|error| error.to_string())?;
@@ -1306,6 +1418,38 @@ mod tests {
         assert!(should_start_translation(ShortcutState::Released));
         assert!(should_start_capture(ShortcutState::Pressed));
         assert!(!should_start_capture(ShortcutState::Released));
+    }
+
+    #[test]
+    fn detects_launch_from_autostart_argument() {
+        assert!(launched_from_autostart(&["--startup".into()]));
+        assert!(launched_from_autostart(&[
+            "--other".into(),
+            "--startup".into()
+        ]));
+        assert!(!launched_from_autostart(&[]));
+        assert!(!launched_from_autostart(&["--startup=false".into()]));
+    }
+
+    #[cfg(all(windows, not(debug_assertions)))]
+    #[test]
+    fn validates_windows_autostart_executable_and_arguments() {
+        let expected_executable = r"C:\Program Files\S-Tools\S-Tools.exe";
+        assert!(windows_autostart_matches(
+            r#""C:\Program Files\S-Tools\S-Tools.exe" --startup"#,
+            expected_executable,
+            &["--startup"],
+        ));
+        assert!(!windows_autostart_matches(
+            r"D:\studyspace\S-Tools\src-tauri\target\debug\s-tools.exe",
+            expected_executable,
+            &["--startup"],
+        ));
+        assert!(!windows_autostart_matches(
+            r#""C:\Program Files\S-Tools\S-Tools.exe""#,
+            expected_executable,
+            &["--startup"],
+        ));
     }
 
     #[test]

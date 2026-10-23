@@ -575,15 +575,21 @@ mod tests {
                         "file": "S-Tools.app.zip",
                         "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                         "size": 2048
+                    },
+                    "windows-x64": {
+                        "file": "S-Tools-setup.exe",
+                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "size": 2048
                     }
                 },
                 "manualSizes": {
-                    "macos-aarch64": 4096
+                    "macos-aarch64": 4096,
+                    "windows-x64": 4096
                 }
             }"#,
         )
         .expect("parse v2");
-        let info = update_from_v2(&manifest, "1.0.10").expect("newer update");
+        let info = update_from_v2(&manifest, "1.0.11").expect("newer update");
         assert_eq!(info.download_size, Some(2048));
         assert_eq!(info.manual_download_size, None);
         assert!(info.self_update);
@@ -596,12 +602,18 @@ mod tests {
                 "version": "1.1.0",
                 "tag": "v1.1.0",
                 "assets": {},
-                "manual": {"macos-aarch64": "S-Tools.dmg"},
-                "manualSizes": {"macos-aarch64": 4096}
+                "manual": {
+                    "macos-aarch64": "S-Tools.dmg",
+                    "windows-x64": "S-Tools-setup.exe"
+                },
+                "manualSizes": {
+                    "macos-aarch64": 4096,
+                    "windows-x64": 4096
+                }
             }"#,
         )
         .expect("parse manual v2");
-        let info = update_from_v2(&manifest, "1.0.10").expect("newer update");
+        let info = update_from_v2(&manifest, "1.0.11").expect("newer update");
         assert!(!info.self_update);
         assert_eq!(info.download_size, Some(4096));
         assert_eq!(info.manual_download_size, Some(4096));
@@ -613,11 +625,14 @@ mod tests {
             r#"{
                 "version": "1.1.0",
                 "tag": "v1.1.0",
-                "assets": {"macos-aarch64": "S-Tools.dmg"}
+                "assets": {
+                    "macos-aarch64": "S-Tools.dmg",
+                    "windows-x64": "S-Tools-setup.exe"
+                }
             }"#,
         )
         .expect("parse legacy");
-        let info = update_from_legacy(&manifest, "1.0.10").expect("newer update");
+        let info = update_from_legacy(&manifest, "1.0.11").expect("newer update");
         assert_eq!(info.download_size, None);
         assert_eq!(info.manual_download_size, None);
     }
@@ -628,12 +643,18 @@ mod tests {
             r#"{
                 "version": "1.1.0",
                 "tag": "v1.1.0",
-                "assets": {"macos-aarch64": "S-Tools.dmg"},
-                "sizes": {"macos-aarch64": 3072}
+                "assets": {
+                    "macos-aarch64": "S-Tools.dmg",
+                    "windows-x64": "S-Tools-setup.exe"
+                },
+                "sizes": {
+                    "macos-aarch64": 3072,
+                    "windows-x64": 3072
+                }
             }"#,
         )
         .expect("parse legacy");
-        let info = update_from_legacy(&manifest, "1.0.10").expect("newer update");
+        let info = update_from_legacy(&manifest, "1.0.11").expect("newer update");
         assert_eq!(info.download_size, Some(3072));
         assert_eq!(info.manual_download_size, Some(3072));
     }
