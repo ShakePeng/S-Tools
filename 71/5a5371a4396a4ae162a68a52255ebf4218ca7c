@@ -1,0 +1,37 @@
+src/lib/ipc.ts
+  s_ecaade4b541424::t_790e2236a9d80b 24
+CHANGELOG.md
+  s_ecaade4b541424::t_790e2236a9d80b 5-12
+README.md
+  s_ecaade4b541424::t_790e2236a9d80b 179
+package.json
+  s_ecaade4b541424::t_790e2236a9d80b 4
+src-tauri/Cargo.toml
+  s_ecaade4b541424::t_790e2236a9d80b 3
+src/shell/ShellView.vue
+  s_ecaade4b541424::t_790e2236a9d80b 415,762
+src-tauri/src/lib.rs
+  s_ecaade4b541424::t_790e2236a9d80b 57,64
+src-tauri/tauri.conf.json
+  s_ecaade4b541424::t_790e2236a9d80b 4
+scripts/macos-dev-app/Info.plist
+  s_ecaade4b541424::t_790e2236a9d80b 22,24
+src-tauri/Cargo.lock
+  s_ecaade4b541424::t_309ff895b7d449 4412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "715a5371a4396a4ae162a68a52255ebf4218ca7c",
+  "prompts": {},
+  "sessions": {
+    "s_ecaade4b541424": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16698-d60d-7681-bf7c-e7c4738e57cc",
+        "model": "workbuddy-2/cn:deepseek-v4.1-flash"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
