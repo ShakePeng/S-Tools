@@ -67,6 +67,37 @@ pub fn windows_display_rect_for_window(window: *mut std::ffi::c_void) -> Option<
 }
 
 #[cfg(windows)]
+pub fn fit_capture_window_to_display(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use tauri::{PhysicalPosition, PhysicalSize};
+
+    // 窗口刚创建时 hwnd 可能尚未就绪，先用 Tauri 的物理尺寸兜底，避免截图直接失败。
+    let monitor = window
+        .current_monitor()
+        .map_err(|error| format!("读取截图显示器失败：{error}"))?
+        .ok_or_else(|| "无法读取截图显示器".to_string())?;
+    let size = monitor.size();
+    let position = monitor.position();
+    window
+        .set_position(PhysicalPosition::new(position.x, position.y))
+        .and_then(|_| window.set_size(PhysicalSize::new(size.width, size.height)))
+        .map_err(|error| format!("设置截图窗口边界失败：{error}"))?;
+    if let Ok(hwnd) = window.hwnd() {
+        if let Some((display_x, display_y, display_width, display_height)) =
+            windows_display_rect_for_window(hwnd.0 as _)
+        {
+            windows_set_window_client_rect(
+                hwnd.0 as _,
+                display_x,
+                display_y,
+                display_width as i32,
+                display_height as i32,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
 pub fn windows_set_window_client_rect(
     window: *mut std::ffi::c_void,
     x: i32,

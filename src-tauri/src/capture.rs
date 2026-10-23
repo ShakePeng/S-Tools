@@ -12,8 +12,8 @@ use tauri::{window::Color, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindo
 use tauri::LogicalSize;
 #[cfg(target_os = "macos")]
 use tauri::LogicalPosition;
-#[cfg(not(target_os = "macos"))]
-use tauri::{PhysicalPosition, PhysicalSize};
+#[cfg(windows)]
+use tauri::PhysicalPosition;
 use uuid::Uuid;
 use xcap::Monitor;
 
@@ -332,36 +332,15 @@ fn capture_monitor_to_png(monitor: &Monitor, path: &Path) -> Result<(), String> 
     std::fs::write(path, bytes).map_err(|error| format!("保存临时截图失败：{error}"))
 }
 
-#[cfg(windows)]
 fn fit_capture_window_to_display(window: &tauri::WebviewWindow) -> Result<(), String> {
-    // 窗口刚创建时 hwnd 可能尚未就绪，先用 Tauri 的物理尺寸兜底，避免截图直接失败。
-    let monitor = window
-        .current_monitor()
-        .map_err(|error| format!("读取截图显示器失败：{error}"))?
-        .ok_or_else(|| "无法读取截图显示器".to_string())?;
-    let size = monitor.size();
-    let position = monitor.position();
-    window
-        .set_position(PhysicalPosition::new(position.x, position.y))
-        .and_then(|_| window.set_size(PhysicalSize::new(size.width, size.height)))
-        .map_err(|error| format!("设置截图窗口边界失败：{error}"))?;
-    if let Ok(hwnd) = window.hwnd() {
-        if let Some((display_x, display_y, display_width, display_height)) =
-            crate::platform::windows_display_rect_for_window(hwnd.0 as _)
-        {
-            if let Err(error) = crate::platform::windows_set_window_client_rect(
-                hwnd.0 as _,
-                display_x,
-                display_y,
-                display_width as i32,
-                display_height as i32,
-            ) {
-                // Win32 微调失败时保留 Tauri 已设置的显示器尺寸，不中断截图流程。
-                app_log::warn(window.app_handle(), "capture", error);
-            }
-        }
+    // Windows 专属窗口边界处理放在独立模块，避免非 Windows 目标解析 hwnd 等平台 API。
+    #[cfg(windows)]
+    return crate::platform::fit_capture_window_to_display(window);
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        Ok(())
     }
-    Ok(())
 }
 
 fn start_ready_watchdog(app: AppHandle, session_id: String, ready: Arc<Mutex<HashSet<String>>>) {
