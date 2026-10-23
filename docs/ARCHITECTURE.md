@@ -11,6 +11,8 @@ S-Tools 是单进程、多窗口的 Tauri 应用。Rust 侧维护配置、查询
 - `translate`：置顶划词翻译浮窗。
 - `capture-overlay`：启动时预热、跨截图会话复用的冻结画面与编辑器窗口。
 
+macOS 通过 `LSUIElement` 从启动阶段隐藏 Dock 图标，并保留 `ActivationPolicy::Accessory` 兜底；所有窗口隐藏时，系统 `Reopen` 事件和单实例重复启动都会恢复引导窗口或主窗口。
+
 功能开关：
 
 - `translationEnabled` 与 `screenshotEnabled` 默认均为 `false`。
@@ -68,7 +70,7 @@ interface TranslationRequest {
 2. 获取鼠标所在显示器；macOS 使用系统原生 `screencapture` 捕获，Windows 使用 `xcap`。
 3. 枚举显示器内可见窗口，按前后层级裁剪到显示器局部坐标。
 4. 保存临时 PNG，并将当前会话写入 Rust 状态。
-5. 通知已预热并复用的 `capture-overlay` 窗口。
+5. 通知已预热并复用的 `capture-overlay` 窗口，并在 macOS 将其提升到系统菜单栏与 Dock 之上。
 6. 前端读取原始 PNG 字节并创建 Blob URL，完成解码后发送 ready 信号，Rust 才显示覆盖窗口。
 7. 若 3 秒内未就绪，自动隐藏窗口、清理临时文件并发送结束事件。
 

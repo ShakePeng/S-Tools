@@ -546,6 +546,21 @@ fn show_main_window(app: &AppHandle, section: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn restore_app_interface(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let onboarding_completed = state
+        .config
+        .read()
+        .map_err(|_| "配置锁已损坏".to_string())?
+        .settings
+        .has_completed_onboarding;
+    if onboarding_completed {
+        reveal_main_window(app)
+    } else {
+        show_onboarding(app)
+    }
+}
+
 fn reveal_main_window(app: &AppHandle) -> Result<(), String> {
     if let Some(onboarding) = app.get_webview_window("onboarding") {
         let _ = onboarding.close();
@@ -1045,7 +1060,7 @@ fn start_update_loop(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ = reveal_main_window(app);
+            let _ = restore_app_interface(app);
         }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -1143,8 +1158,22 @@ pub fn run() {
             cancel_update,
             reveal_path,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running S-Tools");
+        .build(tauri::generate_context!())
+        .expect("error while building S-Tools")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows,
+                ..
+            } = event
+            {
+                if !has_visible_windows {
+                    let _ = restore_app_interface(app);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }
 
 #[cfg(test)]

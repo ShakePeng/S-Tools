@@ -4,6 +4,7 @@ use crate::models::Rect;
 unsafe extern "C" {
     fn stools_frontmost_app_pid() -> u32;
     fn stools_activate_app_pid(pid: u32);
+    fn stools_set_capture_window_level(window: *mut std::ffi::c_void);
     fn stools_window_rects_json(
         display_x: f64,
         display_y: f64,
@@ -34,6 +35,13 @@ pub fn activate_app(pid: u32) {
     }
     #[cfg(target_os = "windows")]
     windows_activate_pid(pid);
+}
+
+pub fn set_capture_window_level<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
+    #[cfg(target_os = "macos")]
+    if let Ok(ns_window) = window.ns_window() {
+        unsafe { stools_set_capture_window_level(ns_window) };
+    }
 }
 
 pub fn window_rects_for_display(

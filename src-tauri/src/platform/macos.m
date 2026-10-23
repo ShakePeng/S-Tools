@@ -144,6 +144,16 @@ uint32_t stools_frontmost_app_pid(void) {
     return application == nil ? 0 : application.processIdentifier;
 }
 
+void stools_set_capture_window_level(void *window) {
+    if (window == NULL) {
+        return;
+    }
+    NSWindow *ns_window = (__bridge NSWindow *)window;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [ns_window setLevel:NSScreenSaverWindowLevel];
+    });
+}
+
 void stools_activate_app_pid(uint32_t pid) {
     if (pid == 0) {
         return;

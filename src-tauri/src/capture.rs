@@ -27,9 +27,10 @@ pub const CAPTURE_WINDOW_LABEL: &str = "capture-overlay";
 
 pub fn ensure_capture_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(CAPTURE_WINDOW_LABEL) {
+        crate::platform::set_capture_window_level(&window);
         return Ok(window);
     }
-    WebviewWindowBuilder::new(
+    let window = WebviewWindowBuilder::new(
         app,
         CAPTURE_WINDOW_LABEL,
         WebviewUrl::App("index.html?view=capture".into()),
@@ -46,7 +47,9 @@ pub fn ensure_capture_window(app: &AppHandle) -> Result<tauri::WebviewWindow, St
     .accept_first_mouse(true)
     .visible(false)
     .build()
-    .map_err(|error| format!("创建截图覆盖窗口失败：{error}"))
+    .map_err(|error| format!("创建截图覆盖窗口失败：{error}"))?;
+    crate::platform::set_capture_window_level(&window);
+    Ok(window)
 }
 
 pub async fn start_capture(
@@ -314,6 +317,7 @@ pub fn show_capture_window(
     let window = app
         .get_webview_window(CAPTURE_WINDOW_LABEL)
         .ok_or_else(|| "截图覆盖窗口不存在".to_string())?;
+    crate::platform::set_capture_window_level(&window);
     ready
         .lock()
         .map_err(|_| "截图就绪状态锁已损坏".to_string())?
