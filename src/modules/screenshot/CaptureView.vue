@@ -885,12 +885,14 @@ async function loadCaptureSession(nextSession: CaptureSession) {
     }
     await call("show_capture_window", { sessionId: nextSession.sessionId });
   } catch (reason) {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    void call("log_capture_error", { message }).catch(() => undefined);
     if (generation != loadGeneration || activeSessionId != nextSession.sessionId) {
       if (objectUrl && imageSrc.value != objectUrl) URL.revokeObjectURL(objectUrl);
       return;
     }
     if (objectUrl && imageSrc.value != objectUrl) URL.revokeObjectURL(objectUrl);
-    error.value = reason instanceof Error ? reason.message : String(reason);
+    error.value = message;
     loading.value = false;
     await nextTick();
     await call("show_capture_window", { sessionId: nextSession.sessionId }).catch(() => undefined);

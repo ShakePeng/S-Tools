@@ -120,10 +120,12 @@ export interface UpdateInfo {
   notes: string;
   downloadUrl: string;
   fileName: string;
+  downloadSize: number | null;
   sha256: string | null;
   selfUpdate: boolean;
   manualDownloadUrl: string | null;
   manualFileName: string | null;
+  manualDownloadSize: number | null;
 }
 
 export interface UpdateInstallResult {

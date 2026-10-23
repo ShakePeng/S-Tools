@@ -30,6 +30,8 @@ struct ManifestV2 {
     assets: HashMap<String, AssetV2>,
     #[serde(default)]
     manual: HashMap<String, String>,
+    #[serde(default, alias = "manualSizes")]
+    manual_sizes: HashMap<String, u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,6 +39,8 @@ struct AssetV2 {
     file: String,
     #[serde(default)]
     sha256: String,
+    #[serde(default)]
+    size: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +51,8 @@ struct ManifestLegacy {
     notes: String,
     #[serde(default)]
     assets: HashMap<String, String>,
+    #[serde(default)]
+    sizes: HashMap<String, u64>,
 }
 
 fn update_client(total_timeout: Option<Duration>) -> Result<Client, String> {
@@ -109,17 +115,24 @@ fn update_from_v2(manifest: &ManifestV2, current: &str) -> Option<UpdateInfo> {
     let tag = manifest_tag(&manifest.tag, &manifest.version);
     let manual_file = manifest.manual.get(platform);
     let asset = manifest.assets.get(platform);
-    let (download_url, file_name, sha256, self_update) =
+    let (download_url, file_name, download_size, sha256, self_update) =
         if let Some(asset) = asset.filter(|asset| is_valid_sha256(&asset.sha256)) {
             (
                 release_url(&tag, &asset.file),
                 asset.file.clone(),
+                asset.size,
                 Some(asset.sha256.clone()),
                 true,
             )
         } else {
             let file = manual_file?;
-            (release_url(&tag, file), file.clone(), None, false)
+            (
+                release_url(&tag, file),
+                file.clone(),
+                manifest.manual_sizes.get(platform).copied(),
+                None,
+                false,
+            )
         };
     Some(UpdateInfo {
         version: manifest
@@ -130,10 +143,13 @@ fn update_from_v2(manifest: &ManifestV2, current: &str) -> Option<UpdateInfo> {
         notes: manifest.notes.clone(),
         download_url,
         file_name,
+        download_size,
         sha256,
         self_update,
         manual_download_url: manual_file.map(|file| release_url(&tag, file)),
         manual_file_name: manual_file.cloned(),
+        manual_download_size: manual_file
+            .and_then(|_| manifest.manual_sizes.get(platform).copied()),
     })
 }
 
@@ -153,10 +169,12 @@ fn update_from_legacy(manifest: &ManifestLegacy, current: &str) -> Option<Update
         notes: manifest.notes.clone(),
         download_url: release_url(&tag, file),
         file_name: file.clone(),
+        download_size: manifest.sizes.get(platform).copied(),
         sha256: None,
         self_update: false,
         manual_download_url: Some(release_url(&tag, file)),
         manual_file_name: Some(file.clone()),
+        manual_download_size: manifest.sizes.get(platform).copied(),
     })
 }
 
@@ -544,6 +562,80 @@ mod tests {
     fn validates_sha() {
         assert!(is_valid_sha256(&"a".repeat(64)));
         assert!(!is_valid_sha256("abc"));
+    }
+
+    #[test]
+    fn parses_v2_manifest_sizes_and_bounds() {
+        let manifest: ManifestV2 = serde_json::from_str(
+            r#"{
+                "version": "1.1.0",
+                "tag": "v1.1.0",
+                "assets": {
+                    "macos-aarch64": {
+                        "file": "S-Tools.app.zip",
+                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "size": 2048
+                    }
+                },
+                "manualSizes": {
+                    "macos-aarch64": 4096
+                }
+            }"#,
+        )
+        .expect("parse v2");
+        let info = update_from_v2(&manifest, "1.0.10").expect("newer update");
+        assert_eq!(info.download_size, Some(2048));
+        assert_eq!(info.manual_download_size, None);
+        assert!(info.self_update);
+    }
+
+    #[test]
+    fn manual_only_v2_manifest_uses_manual_size() {
+        let manifest: ManifestV2 = serde_json::from_str(
+            r#"{
+                "version": "1.1.0",
+                "tag": "v1.1.0",
+                "assets": {},
+                "manual": {"macos-aarch64": "S-Tools.dmg"},
+                "manualSizes": {"macos-aarch64": 4096}
+            }"#,
+        )
+        .expect("parse manual v2");
+        let info = update_from_v2(&manifest, "1.0.10").expect("newer update");
+        assert!(!info.self_update);
+        assert_eq!(info.download_size, Some(4096));
+        assert_eq!(info.manual_download_size, Some(4096));
+    }
+
+    #[test]
+    fn legacy_manifest_without_size_still_parses() {
+        let manifest: ManifestLegacy = serde_json::from_str(
+            r#"{
+                "version": "1.1.0",
+                "tag": "v1.1.0",
+                "assets": {"macos-aarch64": "S-Tools.dmg"}
+            }"#,
+        )
+        .expect("parse legacy");
+        let info = update_from_legacy(&manifest, "1.0.10").expect("newer update");
+        assert_eq!(info.download_size, None);
+        assert_eq!(info.manual_download_size, None);
+    }
+
+    #[test]
+    fn legacy_manifest_uses_available_size() {
+        let manifest: ManifestLegacy = serde_json::from_str(
+            r#"{
+                "version": "1.1.0",
+                "tag": "v1.1.0",
+                "assets": {"macos-aarch64": "S-Tools.dmg"},
+                "sizes": {"macos-aarch64": 3072}
+            }"#,
+        )
+        .expect("parse legacy");
+        let info = update_from_legacy(&manifest, "1.0.10").expect("newer update");
+        assert_eq!(info.download_size, Some(3072));
+        assert_eq!(info.manual_download_size, Some(3072));
     }
 
     async fn serve_once(response: Vec<u8>) -> (String, tokio::task::JoinHandle<()>) {

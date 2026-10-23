@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import AppIcon from "../components/AppIcon.vue";
 import HotkeyRecorder from "../components/HotkeyRecorder.vue";
 import ProviderLogo from "../components/ProviderLogo.vue";
@@ -9,7 +9,7 @@ import UiIcon from "../components/UiIcon.vue";
 import { truncate } from "../lib/format";
 import { formatHotkey } from "../lib/hotkeys";
 import { bootstrap, call, isTauri } from "../lib/ipc";
-import { downloadProgressLabel, updatePercent } from "../lib/update";
+import { downloadProgressLabel, effectiveUpdateTotal, updatePercent } from "../lib/update";
 import type {
   AppSettings,
   BootstrapData,
@@ -68,6 +68,7 @@ let toastTimer: number | undefined;
 let unlistenUpdate: (() => void) | undefined;
 let unlistenNavigate: (() => void) | undefined;
 let unlistenToast: (() => void) | undefined;
+let unlistenCaptureError: (() => void) | undefined;
 
 const enabledProviders = computed(
   () => data.value?.providers.filter((provider) => provider.enabled && provider.configured) || [],
@@ -194,7 +195,8 @@ async function startCapture() {
   try {
     await call("start_capture");
   } catch (reason) {
-    notify(reason instanceof Error ? reason.message : String(reason));
+    // 桌面端统一通过 app://toast 反馈，避免主窗口重复弹出两条提示。
+    if (!isTauri()) notify(reason instanceof Error ? reason.message : String(reason));
   }
 }
 
@@ -277,6 +279,22 @@ async function openPermission(kind: "accessibility" | "screenRecording") {
   }
 }
 
+async function openReleases() {
+  try {
+    await call("open_releases");
+  } catch (reason) {
+    notify(reason instanceof Error ? reason.message : String(reason));
+  }
+}
+
+async function openAppLog() {
+  try {
+    await call("open_app_log");
+  } catch (reason) {
+    notify(reason instanceof Error ? reason.message : String(reason));
+  }
+}
+
 async function checkUpdate() {
   updateChecking.value = true;
   updatePhase.value = "idle";
@@ -315,11 +333,11 @@ async function installUpdate() {
       if (event.event == "Started") {
         updatePhase.value = "downloading";
         updateDownloaded.value = 0;
-        updateTotal.value = event.contentLength || null;
+        updateTotal.value = effectiveUpdateTotal(event.contentLength, info.downloadSize);
       }
       if (event.event == "Progress") {
         updateDownloaded.value = event.downloaded || 0;
-        updateTotal.value = event.contentLength || null;
+        updateTotal.value = effectiveUpdateTotal(event.contentLength, info.downloadSize);
       }
       if (event.event == "Verifying") updatePhase.value = "verifying";
       if (event.event == "Installing") updatePhase.value = "installing";
@@ -345,7 +363,7 @@ async function installUpdate() {
     }
     updatePhase.value = "downloading";
     updateDownloaded.value = 0;
-    updateTotal.value = null;
+    updateTotal.value = info.manualDownloadSize ?? null;
     const path = await call<string>("download_update", {
       url: info.manualDownloadUrl,
       fileName: info.manualFileName || info.fileName,
@@ -393,6 +411,10 @@ onMounted(async () => {
     unlistenToast = await listen<string>("app://toast", (event) => {
       notify(event.payload);
     });
+    unlistenCaptureError = await listen<string>("app://capture-error", (event) => {
+      section.value = isSectionVisible("screenshot", settingsForm) ? "screenshot" : "overview";
+      nextTick(() => notify(event.payload));
+    });
   }
 });
 
@@ -401,6 +423,7 @@ onBeforeUnmount(() => {
   unlistenUpdate?.();
   unlistenNavigate?.();
   unlistenToast?.();
+  unlistenCaptureError?.();
 });
 </script>
 
@@ -412,7 +435,7 @@ onBeforeUnmount(() => {
         <div>
           <strong>
             S-Tools
-            <span class="brand-version">v{{ data?.version || "1.0.9" }}</span>
+            <span class="brand-version">v{{ data?.version || "1.0.10" }}</span>
           </strong>
           <span class="brand-subtitle">轻巧的桌面工具箱</span>
         </div>
@@ -759,17 +782,23 @@ onBeforeUnmount(() => {
             <div class="update-mark"><AppIcon :size="72" /></div>
             <div>
               <span class="eyebrow">S-TOOLS DESKTOP</span>
-              <h2>版本 {{ data?.version || "1.0.9" }}</h2>
+              <h2>版本 {{ data?.version || "1.0.10" }}</h2>
               <p>更新清单来自 GitHub Release，下载后会校验 SHA256 再安装。</p>
             </div>
-            <button
-              class="primary-button"
-              :disabled="updateChecking || updateBusy"
-              @click="checkUpdate"
-            >
-              <span v-if="updateChecking" class="spinner"></span>
-              {{ updateChecking ? "检查中…" : "检查更新" }}
-            </button>
+            <div class="update-hero-actions">
+              <button
+                class="primary-button"
+                :disabled="updateChecking || updateBusy"
+                @click="checkUpdate"
+              >
+                <span v-if="updateChecking" class="spinner"></span>
+                {{ updateChecking ? "检查中…" : "检查更新" }}
+              </button>
+              <button class="secondary-button" @click="openReleases">
+                <UiIcon name="external" :size="15" />
+                查看 Releases
+              </button>
+            </div>
           </section>
 
           <section v-if="updateInfo" class="update-card">
@@ -789,11 +818,12 @@ onBeforeUnmount(() => {
               <div
                 :class="['progress-track', { indeterminate: updatePercentage == null }]"
               >
-                <span
+                <i
                   v-if="updatePercentage != null"
                   :style="{ width: `${updatePercentage}%` }"
-                ></span>
-                <span v-else></span>
+                ></i>
+                <i v-else></i>
+                <b v-if="updatePercentage != null">{{ updatePercentage }}%</b>
               </div>
             </div>
             <div v-else-if="updatePhase === 'installing'" class="update-stage">
@@ -832,12 +862,18 @@ onBeforeUnmount(() => {
             {{ updateError }}
           </div>
 
-          <section class="release-notes">
-            <h3>发布规则</h3>
-            <p>
-              macOS 提供 DMG 与可自更新 app.zip，Windows 提供 NSIS 安装包。正式版使用固定自签名证书，
-              首次打开可能需要系统放行；签发身份和安装路径不变时，升级后会复用辅助功能与屏幕录制权限。
-            </p>
+          <section class="settings-section">
+            <div class="settings-heading">
+              <span class="stat-icon"><UiIcon name="provider" /></span>
+              <div>
+                <h2>诊断</h2>
+                <p>查看启动、截图和更新过程中的错误记录。</p>
+              </div>
+            </div>
+            <button class="secondary-button" @click="openAppLog">
+              <UiIcon name="external" :size="15" />
+              打开日志
+            </button>
           </section>
         </section>
       </div>
@@ -2124,8 +2160,7 @@ kbd {
 }
 
 .update-hero,
-.update-card,
-.release-notes {
+.update-card {
   border: 1px solid var(--line);
   border-radius: 19px;
   background: rgba(48, 49, 54, 0.78);
@@ -2137,6 +2172,13 @@ kbd {
   align-items: center;
   gap: 20px;
   padding: 24px;
+}
+
+.update-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .update-hero > div:nth-child(2) {
@@ -2205,13 +2247,14 @@ kbd {
 }
 
 .progress-track {
-  height: 5px;
+  position: relative;
+  height: 20px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--bg-soft);
 }
 
-.progress-track span {
+.progress-track > i {
   display: block;
   height: 100%;
   border-radius: inherit;
@@ -2219,7 +2262,19 @@ kbd {
   transition: width 200ms ease;
 }
 
-.progress-track.indeterminate span {
+.progress-track > b {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #17130c;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.progress-track.indeterminate > i {
   width: 34%;
   animation: update-progress-indeterminate 1.1s ease-in-out infinite;
 }
@@ -2262,22 +2317,6 @@ kbd {
 .notice-box.neutral {
   background: rgba(255, 255, 255, 0.055);
   color: var(--text-soft);
-}
-
-.release-notes {
-  padding: 22px;
-}
-
-.release-notes h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
-}
-
-.release-notes p {
-  margin: 0;
-  color: var(--text-soft);
-  font-size: var(--font-sm);
-  line-height: 1.75;
 }
 
 .modal-backdrop {

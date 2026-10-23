@@ -311,6 +311,10 @@ jobs:
           win = os.environ["ASSET_WIN"]
           mac = os.environ["ASSET_MAC"]
           app = os.environ["ASSET_APP"]
+          sizes = {
+              "windows-x64": os.path.getsize(os.path.join(assets_dir, win)),
+              "macos-aarch64": os.path.getsize(os.path.join(assets_dir, app)),
+          }
           legacy = {
               "version": os.environ["VERSION"],
               "tag": os.environ["TAG_NAME"],
@@ -319,18 +323,31 @@ jobs:
                   "windows-x64": win,
                   "macos-aarch64": mac,
               },
+              "sizes": sizes,
           }
           v2 = {
               "version": os.environ["VERSION"],
               "tag": os.environ["TAG_NAME"],
               "notes": os.environ["NOTES"],
               "assets": {
-                  "windows-x64": {"file": win, "sha256": digest(os.path.join(assets_dir, win))},
-                  "macos-aarch64": {"file": app, "sha256": digest(os.path.join(assets_dir, app))},
+                  "windows-x64": {
+                      "file": win,
+                      "sha256": digest(os.path.join(assets_dir, win)),
+                      "size": sizes["windows-x64"],
+                  },
+                  "macos-aarch64": {
+                      "file": app,
+                      "sha256": digest(os.path.join(assets_dir, app)),
+                      "size": sizes["macos-aarch64"],
+                  },
               },
               "manual": {
                   "windows-x64": win,
                   "macos-aarch64": mac,
+              },
+              "manualSizes": {
+                  "windows-x64": os.path.getsize(os.path.join(assets_dir, win)),
+                  "macos-aarch64": os.path.getsize(os.path.join(assets_dir, mac)),
               },
           }
           for name, manifest in (("latest.json", legacy), ("latest-v2.json", v2)):

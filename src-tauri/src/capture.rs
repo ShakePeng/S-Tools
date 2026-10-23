@@ -19,11 +19,32 @@ use uuid::Uuid;
 use xcap::Monitor;
 
 use crate::{
+    app_log,
     config::data_dir,
     models::{CaptureSession, CompleteCaptureRequest, CompleteCaptureResult, Rect},
 };
 
 pub const CAPTURE_WINDOW_LABEL: &str = "capture-overlay";
+const CAPTURE_READY_TIMEOUT: Duration = Duration::from_secs(8);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExistingCapture {
+    Visible,
+    Hidden,
+}
+
+pub fn existing_capture_state(
+    session_exists: bool,
+    window_visible: bool,
+) -> Option<ExistingCapture> {
+    if !session_exists {
+        None
+    } else if window_visible {
+        Some(ExistingCapture::Visible)
+    } else {
+        Some(ExistingCapture::Hidden)
+    }
+}
 
 pub fn ensure_capture_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(CAPTURE_WINDOW_LABEL) {
@@ -59,24 +80,40 @@ pub async fn start_capture(
 ) -> Result<(), String> {
     if !crate::selection::screen_recording_allowed() {
         crate::selection::request_screen_recording();
+        app_log::warn(&app, "capture", "屏幕录制权限未授予");
         return Err("需要授予屏幕录制权限后才能截图".into());
     }
-    if !sessions
+    let window = ensure_capture_window(&app).map_err(|error| {
+        app_log::error(&app, "capture", &error);
+        error
+    })?;
+    let has_session = !sessions
         .lock()
         .map_err(|_| "截图会话锁已损坏".to_string())?
-        .is_empty()
-    {
+        .is_empty();
+    let visible = window.is_visible().unwrap_or(false);
+    if let Some(ExistingCapture::Visible) = existing_capture_state(has_session, visible) {
         return Err("已有截图任务正在运行".into());
+    }
+    if has_session {
+        let stale_ids = sessions
+            .lock()
+            .map_err(|_| "截图会话锁已损坏".to_string())?
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        app_log::warn(
+            &app,
+            "capture",
+            format!("清理 {} 个不可见截图会话后重新开始", stale_ids.len()),
+        );
+        for session_id in stale_ids {
+            cleanup_session(&app, sessions, ready, &session_id);
+        }
     }
     cleanup_stale_temp(&app)?;
     let foreground_app_id = crate::platform::frontmost_app_id();
-    let window = match ensure_capture_window(&app) {
-        Ok(window) => window,
-        Err(error) => {
-            restore_foreground_app(foreground_app_id);
-            return Err(error);
-        }
-    };
+    app_log::info(&app, "capture", "开始抓取当前显示器");
 
     let session_result: Result<CaptureSession, String> = async {
         let cursor = app
@@ -186,6 +223,7 @@ pub async fn start_capture(
         Ok(session) => session,
         Err(error) => {
             restore_foreground_app(foreground_app_id);
+            app_log::error(&app, "capture", &error);
             return Err(error);
         }
     };
@@ -199,6 +237,7 @@ pub async fn start_capture(
     {
         let _ = std::fs::remove_file(&session.image_path);
         restore_foreground_app(foreground_app_id);
+        app_log::error(&app, "capture", &error);
         return Err(error);
     }
     if let Err(error) = ready
@@ -213,38 +252,50 @@ pub async fn start_capture(
             .map(|mut sessions| sessions.remove(&session.session_id));
         let _ = std::fs::remove_file(&session.image_path);
         restore_foreground_app(foreground_app_id);
+        app_log::error(&app, "capture", &error);
         return Err(error);
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        window
-            .set_position(LogicalPosition::new(
-                session.position_x,
-                session.position_y,
-            ))
-            .ok();
-        window
-            .set_size(LogicalSize::new(session.width, session.height))
-            .ok();
+    let position_result = {
+        #[cfg(target_os = "macos")]
+        {
+            window
+                .set_position(LogicalPosition::new(session.position_x, session.position_y))
+                .and_then(|_| window.set_size(LogicalSize::new(session.width, session.height)))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            window
+                .set_position(PhysicalPosition::new(
+                    session.position_x.round() as i32,
+                    session.position_y.round() as i32,
+                ))
+                .and_then(|_| {
+                    window.set_size(PhysicalSize::new(
+                        (session.width * session.backing_scale).round() as u32,
+                        (session.height * session.backing_scale).round() as u32,
+                    ))
+                })
+        }
+    };
+    if let Err(error) = position_result {
+        cleanup_session(&app, sessions, ready, &session.session_id);
+        let message = format!("设置截图窗口失败：{error}");
+        app_log::error(&app, "capture", &message);
+        return Err(message);
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        window
-            .set_position(PhysicalPosition::new(
-                session.position_x.round() as i32,
-                session.position_y.round() as i32,
-            ))
-            .ok();
-        window
-            .set_size(PhysicalSize::new(
-                (session.width * session.backing_scale).round() as u32,
-                (session.height * session.backing_scale).round() as u32,
-            ))
-            .ok();
-    }
+    app_log::info(
+        &app,
+        "capture",
+        format!("已抓图，等待截图界面就绪：{}", session.session_id),
+    );
     start_ready_watchdog(app.clone(), session.session_id.clone(), ready.clone());
-    let _ = window.emit("capture://started", session);
+    if let Err(error) = window.emit("capture://started", session.clone()) {
+        cleanup_session(&app, sessions, ready, &session.session_id);
+        let message = format!("通知截图界面失败：{error}");
+        app_log::error(&app, "capture", &message);
+        return Err(message);
+    }
     Ok(())
 }
 
@@ -286,18 +337,48 @@ fn capture_monitor_to_png(monitor: &Monitor, path: &Path) -> Result<(), String> 
 
 fn start_ready_watchdog(app: AppHandle, session_id: String, ready: Arc<Mutex<HashSet<String>>>) {
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        tokio::time::sleep(CAPTURE_READY_TIMEOUT).await;
+        let some_state = app.try_state::<crate::AppState>();
         let is_ready = ready
             .lock()
             .map(|sessions| sessions.contains(&session_id))
             .unwrap_or(false);
-        if is_ready {
+        let is_visible = app
+            .get_webview_window(CAPTURE_WINDOW_LABEL)
+            .and_then(|window| window.is_visible().ok())
+            .unwrap_or(false);
+        if is_ready && is_visible {
             return;
         }
-        if let Some(state) = app.try_state::<crate::AppState>() {
-            cleanup_session(&app, &state.sessions, &state.capture_ready, &session_id);
+        let still_exists = some_state
+            .as_ref()
+            .and_then(|state| state.sessions.lock().ok())
+            .map(|sessions| sessions.contains_key(&session_id))
+            .unwrap_or(false);
+        if !still_exists {
+            return;
         }
-        let _ = app.emit("app://toast", "截图界面加载失败，已自动关闭");
+        app_log::warn(
+            &app,
+            "capture",
+            format!(
+                "截图界面 {} 秒未就绪（ready={is_ready}, visible={is_visible}）",
+                CAPTURE_READY_TIMEOUT.as_secs()
+            ),
+        );
+        if let Some(state) = some_state.as_ref() {
+            cleanup_session(&app, &state.sessions, &state.capture_ready, &session_id);
+            let message = "截图界面未能正常显示，已自动结束本次任务，请重试";
+            let app_visible = ["main", "onboarding", "translate"]
+                .iter()
+                .filter_map(|label| app.get_webview_window(label))
+                .any(|window| window.is_visible().unwrap_or(false));
+            if !app_visible {
+                let _ = crate::show_capture_failure_window(&app);
+            }
+            crate::emit_capture_failure(&app, message);
+            return;
+        }
     });
 }
 
@@ -328,6 +409,7 @@ pub fn show_capture_window(
         }
         return Err(format!("显示截图窗口失败：{error}"));
     }
+    app_log::info(app, "capture", format!("截图界面已显示：{session_id}"));
     Ok(())
 }
 
@@ -591,6 +673,7 @@ pub fn cleanup_session(
         sessions.remove(session_id);
     }
     hide_capture_window(app);
+    app_log::info(app, "capture", format!("截图会话已结束：{session_id}"));
     let _ = app.emit("capture://ended", ());
     restore_foreground_app(foreground_app_id);
 }
@@ -598,6 +681,7 @@ pub fn cleanup_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::CaptureSession;
 
     #[test]
     #[ignore = "requires an interactive desktop with screen recording permission"]
@@ -656,6 +740,19 @@ mod tests {
             (0.0, 0.0, 2304.0, 1296.0)
         );
         assert_eq!(physical_monitor_position(0.0, 0.0, 2.0, false), (0, 0));
+    }
+
+    #[test]
+    fn keeps_visible_capture_sessions_and_recovers_hidden_ones() {
+        assert_eq!(existing_capture_state(false, false), None);
+        assert_eq!(
+            existing_capture_state(true, true),
+            Some(ExistingCapture::Visible)
+        );
+        assert_eq!(
+            existing_capture_state(true, false),
+            Some(ExistingCapture::Hidden)
+        );
     }
 
     #[test]

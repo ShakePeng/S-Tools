@@ -18,6 +18,19 @@ export function updatePercent(downloaded: number, total: number | null): number 
   return Math.min(100, Math.max(0, percent));
 }
 
+export function effectiveUpdateTotal(
+  contentLength: number | null | undefined,
+  manifestSize: number | null | undefined,
+): number | null {
+  if (contentLength && Number.isFinite(contentLength) && contentLength > 0) {
+    return contentLength;
+  }
+  if (manifestSize && Number.isFinite(manifestSize) && manifestSize > 0) {
+    return manifestSize;
+  }
+  return null;
+}
+
 export function downloadProgressLabel(downloaded: number, total: number | null): string {
   if (total && total > 0) {
     return `${formatByteSize(downloaded)} / ${formatByteSize(total)}`;

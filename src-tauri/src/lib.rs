@@ -1,3 +1,4 @@
+mod app_log;
 mod capture;
 mod config;
 mod maintenance;
@@ -38,6 +39,7 @@ const TRANSLATION_WINDOW_WIDTH: f64 = 300.0;
 const TRANSLATION_WINDOW_DEFAULT_HEIGHT: f64 = 300.0;
 const TRANSLATION_WINDOW_MIN_HEIGHT: f64 = 220.0;
 const TRANSLATION_WINDOW_MAX_HEIGHT: f64 = 560.0;
+const RELEASES_URL: &str = "https://github.com/ShakePeng/S-Tools/releases";
 
 pub struct AppState {
     config: RwLock<AppConfig>,
@@ -54,14 +56,14 @@ pub struct AppState {
 impl AppState {
     fn new(config: AppConfig) -> Result<Self, String> {
         let client = reqwest::Client::builder()
-            .user_agent("S-Tools/1.0.9")
+            .user_agent("S-Tools/1.0.10")
             .connect_timeout(Duration::from_secs(12))
             .timeout(Duration::from_secs(45))
             .pool_idle_timeout(Duration::from_secs(90))
             .build()
             .map_err(|error| format!("初始化网络客户端失败：{error}"))?;
         let direct_client = reqwest::Client::builder()
-            .user_agent("S-Tools/1.0.9")
+            .user_agent("S-Tools/1.0.10")
             .connect_timeout(Duration::from_secs(8))
             .timeout(Duration::from_secs(30))
             .pool_idle_timeout(Duration::from_secs(90))
@@ -331,8 +333,60 @@ fn hide_translation_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn start_capture(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    ensure_screenshot_enabled(&app)?;
-    capture::start_capture(app, &state.sessions, &state.capture_ready).await
+    let main_visible = app
+        .get_webview_window("main")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    let result = async {
+        ensure_screenshot_enabled(&app)?;
+        capture::start_capture(app.clone(), &state.sessions, &state.capture_ready).await
+    }
+    .await;
+    if let Err(error) = &result {
+        if main_visible {
+            app_log::error(&app, "capture", error);
+            let _ = app.emit("app://toast", error);
+        } else {
+            report_capture_failure(&app, error);
+        }
+    }
+    result
+}
+
+#[tauri::command]
+fn open_releases() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    Command::new("open")
+        .arg(RELEASES_URL)
+        .spawn()
+        .map_err(|error| format!("打开 Releases 失败：{error}"))?;
+    #[cfg(target_os = "windows")]
+    Command::new("cmd")
+        .args(["/C", "start", "", RELEASES_URL])
+        .spawn()
+        .map_err(|error| format!("打开 Releases 失败：{error}"))?;
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    return Err("当前平台不支持打开系统浏览器".into());
+    Ok(())
+}
+
+#[tauri::command]
+fn open_app_log(app: AppHandle) -> Result<(), String> {
+    app_log::open(&app)
+}
+
+#[tauri::command]
+fn log_capture_error(app: AppHandle, message: String) -> Result<(), String> {
+    let message = message.trim();
+    if message.is_empty() {
+        return Ok(());
+    }
+    app_log::error(
+        &app,
+        "capture",
+        &message.chars().take(4000).collect::<String>(),
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -464,7 +518,11 @@ fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
-    updater::check_update(&app).await
+    let result = updater::check_update(&app).await;
+    if let Err(error) = &result {
+        app_log::error(&app, "update", error);
+    }
+    result
 }
 
 #[tauri::command]
@@ -478,6 +536,9 @@ async fn download_update(
     let cancellation = begin_update_download(&state)?;
     let result = updater::download_update(&app, url, file_name, on_event, &cancellation).await;
     finish_update_download(&state);
+    if let Err(error) = &result {
+        app_log::error(&app, "update", error);
+    }
     result
 }
 
@@ -494,6 +555,9 @@ async fn install_update(
     let result =
         updater::install_update(&app, url, file_name, sha256, on_event, &cancellation).await;
     finish_update_download(&state);
+    if let Err(error) = &result {
+        app_log::error(&app, "update", error);
+    }
     result
 }
 
@@ -538,6 +602,44 @@ fn permission_status() -> PermissionStatus {
         accessibility: selection::accessibility_allowed(),
         screen_recording: selection::screen_recording_allowed(),
     }
+}
+
+fn capture_failure_section(app: &AppHandle) -> &'static str {
+    let enabled = app
+        .state::<AppState>()
+        .config
+        .read()
+        .map(|config| config.settings.screenshot_enabled)
+        .unwrap_or(false);
+    if enabled {
+        "screenshot"
+    } else {
+        "overview"
+    }
+}
+
+pub fn report_capture_failure(app: &AppHandle, message: &str) {
+    app_log::error(app, "capture", message);
+    let app_visible = ["main", "onboarding", "translate"]
+        .iter()
+        .filter_map(|label| app.get_webview_window(label))
+        .any(|window| window.is_visible().unwrap_or(false));
+    if !app_visible {
+        let _ = show_main_window(app, capture_failure_section(app));
+    }
+    if app_visible {
+        let _ = app.emit("app://toast", message);
+    }
+}
+
+pub fn show_capture_failure_window(app: &AppHandle) -> Result<(), String> {
+    show_main_window(app, capture_failure_section(app))
+}
+
+pub fn emit_capture_failure(app: &AppHandle, message: &str) {
+    app_log::error(app, "capture", message);
+    let _ = app.emit("app://toast", message);
+    let _ = app.emit("app://capture-error", message);
 }
 
 fn show_main_window(app: &AppHandle, section: &str) -> Result<(), String> {
@@ -931,7 +1033,7 @@ fn register_shortcuts(app: &AppHandle) -> Result<(), String> {
                         )
                         .await
                         {
-                            let _ = handle.emit("app://toast", error);
+                            report_capture_failure(&handle, &error);
                         }
                     });
                 }
@@ -970,9 +1072,10 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let translate = MenuItemBuilder::with_id("translate", "划词翻译").build(app)?;
     let screenshot = MenuItemBuilder::with_id("screenshot", "区域截图").build(app)?;
     let settings = MenuItemBuilder::with_id("settings", "设置").build(app)?;
+    let logs = MenuItemBuilder::with_id("logs", "打开日志").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "退出 S-Tools").build(app)?;
     let menu = MenuBuilder::new(app)
-        .items(&[&translate, &screenshot, &settings, &quit])
+        .items(&[&translate, &screenshot, &settings, &logs, &quit])
         .build()?;
     #[cfg(target_os = "macos")]
     let icon_bytes = include_bytes!("../icons/tray-template.png");
@@ -1002,7 +1105,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 tauri::async_runtime::spawn(async move {
                     if let Err(error) = ensure_screenshot_enabled(&handle) {
                         let _ = show_main_window(&handle, "overview");
-                        let _ = handle.emit("app://toast", error);
+                        report_capture_failure(&handle, &error);
                         return;
                     }
                     let state = handle.state::<AppState>();
@@ -1013,12 +1116,18 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                     )
                     .await
                     {
-                        let _ = handle.emit("app://toast", error);
+                        report_capture_failure(&handle, &error);
                     }
                 });
             }
             "settings" => {
                 let _ = show_main_window(app, "settings");
+            }
+            "logs" => {
+                if let Err(error) = app_log::open(app) {
+                    let _ = show_main_window(app, "settings");
+                    let _ = app.emit("app://toast", error);
+                }
             }
             "quit" => {
                 app.state::<AppState>()
@@ -1048,8 +1157,12 @@ fn start_update_loop(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(10)).await;
         loop {
-            if let Ok(Some(info)) = updater::check_update(&app).await {
-                let _ = app.emit("update://available", info);
+            match updater::check_update(&app).await {
+                Ok(Some(info)) => {
+                    let _ = app.emit("update://available", info);
+                }
+                Ok(None) => {}
+                Err(error) => app_log::error(&app, "update", format!("自动检查更新失败：{error}")),
             }
             tokio::time::sleep(Duration::from_secs(24 * 60 * 60)).await;
         }
@@ -1075,6 +1188,11 @@ pub fn run() {
             let settings = config.settings.clone();
             let state = AppState::new(config).map_err(|error| error.to_string())?;
             app.manage(state);
+            app_log::info(
+                &handle,
+                "app",
+                format!("启动 S-Tools {}", handle.package_info().version),
+            );
 
             #[cfg(target_os = "macos")]
             let _ = app
@@ -1157,6 +1275,9 @@ pub fn run() {
             install_update,
             cancel_update,
             reveal_path,
+            open_releases,
+            open_app_log,
+            log_capture_error,
         ])
         .build(tauri::generate_context!())
         .expect("error while building S-Tools")

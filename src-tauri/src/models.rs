@@ -251,10 +251,12 @@ pub struct UpdateInfo {
     pub notes: String,
     pub download_url: String,
     pub file_name: String,
+    pub download_size: Option<u64>,
     pub sha256: Option<String>,
     pub self_update: bool,
     pub manual_download_url: Option<String>,
     pub manual_file_name: Option<String>,
+    pub manual_download_size: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
