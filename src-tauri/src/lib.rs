@@ -54,14 +54,14 @@ pub struct AppState {
 impl AppState {
     fn new(config: AppConfig) -> Result<Self, String> {
         let client = reqwest::Client::builder()
-            .user_agent("S-Tools/1.0.7")
+            .user_agent("S-Tools/1.0.8")
             .connect_timeout(Duration::from_secs(12))
             .timeout(Duration::from_secs(45))
             .pool_idle_timeout(Duration::from_secs(90))
             .build()
             .map_err(|error| format!("初始化网络客户端失败：{error}"))?;
         let direct_client = reqwest::Client::builder()
-            .user_agent("S-Tools/1.0.7")
+            .user_agent("S-Tools/1.0.8")
             .connect_timeout(Duration::from_secs(8))
             .timeout(Duration::from_secs(30))
             .pool_idle_timeout(Duration::from_secs(90))
