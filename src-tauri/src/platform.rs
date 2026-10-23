@@ -411,6 +411,7 @@ mod tests {
         assert!(!is_system_window_class("Chrome_WidgetWin_1"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn compensates_client_origin_for_capture_window() {
         let outer = (-8, -1, 1928, 1088);

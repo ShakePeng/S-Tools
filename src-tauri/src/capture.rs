@@ -255,12 +255,23 @@ pub async fn start_capture(
         return Err(error);
     }
 
-    let position_result = window
-        .set_position(PhysicalPosition::new(
-            session.position_x.round() as i32,
-            session.position_y.round() as i32,
-        ))
-        .and_then(|_| window.set_size(LogicalSize::new(session.width, session.height)));
+    let position_result = {
+        #[cfg(target_os = "macos")]
+        {
+            window
+                .set_position(LogicalPosition::new(session.position_x, session.position_y))
+                .and_then(|_| window.set_size(LogicalSize::new(session.width, session.height)))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            window
+                .set_position(PhysicalPosition::new(
+                    session.position_x.round() as i32,
+                    session.position_y.round() as i32,
+                ))
+                .and_then(|_| window.set_size(LogicalSize::new(session.width, session.height)))
+        }
+    };
     if let Err(error) = position_result {
         cleanup_session(&app, sessions, ready, &session.session_id);
         let message = format!("设置截图窗口失败：{error}");
