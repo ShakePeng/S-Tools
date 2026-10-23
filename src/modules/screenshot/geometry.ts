@@ -38,26 +38,6 @@ export function canCompleteSelection(
   return Boolean(selection && selection.width >= minimumSide && selection.height >= minimumSide);
 }
 
-export function snapPoint(
-  point: Point,
-  xTargets: number[],
-  yTargets: number[],
-  threshold = 6,
-): Point {
-  const nearest = (value: number, targets: number[]) =>
-    targets.reduce(
-      (best, target) =>
-        Math.abs(target - value) < Math.abs(best - value) ? target : best,
-      targets[0] ?? value,
-    );
-  const x = nearest(point.x, xTargets);
-  const y = nearest(point.y, yTargets);
-  return {
-    x: Math.abs(x - point.x) <= threshold ? x : point.x,
-    y: Math.abs(y - point.y) <= threshold ? y : point.y,
-  };
-}
-
 export function positionFloatingToolbar(
   selection: Rect,
   toolbar: Size,
@@ -104,25 +84,11 @@ export function mapRectToImage(
 }
 import {
   ALL_HANDLES,
-  contains,
   hitTestHandle,
-  intersection,
   resized,
   standardized,
   type SelectionHandle,
 } from "./upstream/kiri/geom";
-
-
-export function windowRectAt(point: Point, windows: Rect[], bounds: Rect): Rect | null {
-  const viewport = standardized(bounds);
-  for (const window of windows) {
-    const visible = intersection(standardized(window), viewport);
-    if (visible.width >= 8 && visible.height >= 8 && contains(visible, point)) {
-      return visible;
-    }
-  }
-  return null;
-}
 
 export function selectionHandleAt(
   point: Point,

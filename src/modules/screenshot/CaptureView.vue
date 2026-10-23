@@ -12,9 +12,7 @@ import {
   resizeSelection,
   resizeSelectionProportionally,
   selectionHandleAt,
-  snapPoint,
   type Point,
-  windowRectAt,
 } from "./geometry";
 import {
   ALL_HANDLES,
@@ -67,7 +65,6 @@ const loading = ref(true);
 const error = ref("");
 const saving = ref(false);
 const selection = ref<CaptureRect | null>(null);
-const hoverWindow = ref<CaptureRect | null>(null);
 const cursor = reactive({ x: 0, y: 0 });
 const tool = ref<EditorTool>("select");
 const selectedIndex = ref<number | null>(null);
@@ -205,17 +202,6 @@ function pointFromEvent(event: PointerEvent) {
   );
 }
 
-function snapSelectionPoint(point: Point): Point {
-  const windows = session.value?.windowRects || [];
-  const xTargets = [0, window.innerWidth];
-  const yTargets = [0, window.innerHeight];
-  for (const rect of windows) {
-    xTargets.push(rect.x, rect.x + rect.width);
-    yTargets.push(rect.y, rect.y + rect.height);
-  }
-  return snapPoint(point, xTargets, yTargets);
-}
-
 function startsNewSelection() {
   selection.value = null;
   selectedIndex.value = null;
@@ -289,9 +275,8 @@ function onPointerDown(event: PointerEvent) {
   const local = localPoint(point);
 
   if (!selection.value) {
-    const snapped = snapSelectionPoint(point);
-    interaction.value = { kind: "new", start: snapped };
-    selection.value = { ...snapped, width: 0, height: 0 };
+    interaction.value = { kind: "new", start: point };
+    selection.value = { ...point, width: 0, height: 0 };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     return;
   }
@@ -366,18 +351,16 @@ function onPointerDown(event: PointerEvent) {
     }
 
     startsNewSelection();
-    const snapped = snapSelectionPoint(point);
-    interaction.value = { kind: "new", start: snapped };
-    selection.value = { ...snapped, width: 0, height: 0 };
+    interaction.value = { kind: "new", start: point };
+    selection.value = { ...point, width: 0, height: 0 };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     return;
   }
 
   if (!contains(selection.value, point)) {
     startsNewSelection();
-    const snapped = snapSelectionPoint(point);
-    interaction.value = { kind: "new", start: snapped };
-    selection.value = { ...snapped, width: 0, height: 0 };
+    interaction.value = { kind: "new", start: point };
+    selection.value = { ...point, width: 0, height: 0 };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     return;
   }
@@ -396,15 +379,12 @@ function onPointerMove(event: PointerEvent) {
   cursor.y = point.y;
 
   if (!interaction.value) {
-    hoverWindow.value = selection.value
-      ? null
-      : windowRectAt(point, session.value?.windowRects || [], viewport.value);
     return;
   }
 
   const active = interaction.value;
   if (active.kind == "new") {
-    selection.value = normalizeRect(active.start, snapSelectionPoint(point));
+    selection.value = normalizeRect(active.start, point);
     return;
   }
   if (active.kind == "selection-move" && active.originalSelection) {
@@ -421,7 +401,7 @@ function onPointerMove(event: PointerEvent) {
   }
   if (active.kind == "selection-resize" && active.originalSelection && active.handle) {
     const resize = event.shiftKey ? resizeSelectionProportionally : resizeSelection;
-    selection.value = resize(active.originalSelection, active.handle, snapSelectionPoint(point), viewport.value);
+    selection.value = resize(active.originalSelection, active.handle, point, viewport.value);
     nextTick(redrawAnnotations);
     return;
   }
@@ -462,13 +442,8 @@ function onPointerUp(event: PointerEvent) {
 
   if (active.kind == "new") {
     if (!selection.value || selection.value.width < 8 || selection.value.height < 8) {
-      if (hoverWindow.value) {
-        selection.value = { ...hoverWindow.value };
-      } else {
-        selection.value = null;
-      }
+      selection.value = null;
     }
-    hoverWindow.value = null;
     selectedIndex.value = null;
     nextTick(redrawAnnotations);
     return;
@@ -835,7 +810,6 @@ function clearImageSource() {
 function resetEditorState() {
   clearImageSource();
   selection.value = null;
-  hoverWindow.value = null;
   selectedIndex.value = null;
   interaction.value = null;
   draft.value = null;
@@ -1001,17 +975,6 @@ onBeforeUnmount(() => {
       v-if="!selection && !loading && imageSrc"
       class="capture-ready-veil"
       aria-hidden="true"
-    ></div>
-
-    <div
-      v-if="hoverWindow"
-      class="hover-window"
-      :style="{
-        left: `${hoverWindow.x}px`,
-        top: `${hoverWindow.y}px`,
-        width: `${hoverWindow.width}px`,
-        height: `${hoverWindow.height}px`,
-      }"
     ></div>
 
     <div
@@ -1228,7 +1191,7 @@ onBeforeUnmount(() => {
     </div>
     <div v-if="error && imageSrc" class="capture-toast">{{ error }}</div>
     <div v-if="!selection && !loading && imageSrc" class="capture-hint">
-      拖动框选或单击选择窗口 · 右键 /
+      拖动框选 · 右键 /
       <kbd>Esc</kbd>
       退出
     </div>
@@ -1276,17 +1239,6 @@ onBeforeUnmount(() => {
   to {
     opacity: 1;
   }
-}
-
-.hover-window {
-  position: absolute;
-  z-index: 2;
-  border: 2px solid rgba(245, 158, 11, 0.95);
-  border-radius: 2px;
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.5),
-    0 0 20px rgba(245, 158, 11, 0.2);
-  pointer-events: none;
 }
 
 .capture-shade {

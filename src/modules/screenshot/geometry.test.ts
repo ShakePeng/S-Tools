@@ -8,8 +8,6 @@ import {
   resizeSelection,
   resizeSelectionProportionally,
   selectionHandleAt,
-  snapPoint,
-  windowRectAt,
 } from "./geometry";
 
 describe("screenshot geometry", () => {
@@ -34,16 +32,6 @@ describe("screenshot geometry", () => {
       width: 200,
       height: 100,
     });
-  });
-
-  it("uses the front-to-back visible window under the pointer", () => {
-    const windows = [
-      { x: 10, y: 10, width: 100, height: 80 },
-      { x: 30, y: 30, width: 50, height: 40 },
-    ];
-    expect(windowRectAt({ x: 40, y: 40 }, windows, { x: 0, y: 0, width: 200, height: 150 })).toEqual(
-      windows[0],
-    );
   });
 
   it("detects and resizes eight-handle selections", () => {
@@ -82,26 +70,10 @@ describe("screenshot geometry", () => {
     });
   });
 
-  it("supports a negative secondary display origin", () => {
-    const windows = [{ x: 20, y: 40, width: 400, height: 300 }];
-    expect(
-      windowRectAt(
-        { x: 100, y: 100 },
-        windows,
-        { x: 0, y: 0, width: 1920, height: 1080 },
-      ),
-    ).toEqual(windows[0]);
-  });
-
   it("only completes a usable selection", () => {
     expect(canCompleteSelection(null)).toBe(false);
     expect(canCompleteSelection({ x: 0, y: 0, width: 3, height: 20 })).toBe(false);
     expect(canCompleteSelection({ x: 0, y: 0, width: 8, height: 8 })).toBe(true);
-  });
-
-  it("snaps selection points to display and window edges", () => {
-    expect(snapPoint({ x: 4, y: 118 }, [0, 120], [0, 120])).toEqual({ x: 0, y: 120 });
-    expect(snapPoint({ x: 40, y: 50 }, [0, 120], [0, 120])).toEqual({ x: 40, y: 50 });
   });
 
   it("keeps corner aspect ratio when proportional resize is requested", () => {
