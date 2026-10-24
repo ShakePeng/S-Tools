@@ -195,7 +195,7 @@ async function startCapture() {
   try {
     await call("start_capture");
   } catch (reason) {
-    // 桌面端统一通过 app://toast 反馈，避免主窗口重复弹出两条提示。
+    // 主窗口主动发起时由 Rust 统一发 toast；浏览器预览没有 IPC，需要本地提示。
     if (!isTauri()) notify(reason instanceof Error ? reason.message : String(reason));
   }
 }

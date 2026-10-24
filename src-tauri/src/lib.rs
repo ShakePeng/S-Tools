@@ -46,6 +46,7 @@ pub struct AppState {
     config: RwLock<AppConfig>,
     sessions: Mutex<HashMap<String, CaptureSession>>,
     capture_ready: Arc<Mutex<HashSet<String>>>,
+    capture_guard: capture::CaptureGuard,
     pending: Mutex<PendingTranslation>,
     cancellations: Mutex<HashMap<String, CancellationToken>>,
     update_cancellation: Mutex<Option<CancellationToken>>,
@@ -75,6 +76,7 @@ impl AppState {
             config: RwLock::new(config),
             sessions: Mutex::new(HashMap::new()),
             capture_ready: Arc::new(Mutex::new(HashSet::new())),
+            capture_guard: capture::CaptureGuard::default(),
             pending: Mutex::new(PendingTranslation::default()),
             cancellations: Mutex::new(HashMap::new()),
             update_cancellation: Mutex::new(None),
@@ -340,15 +342,19 @@ async fn start_capture(app: AppHandle, state: State<'_, AppState>) -> Result<(),
         .unwrap_or(false);
     let result = async {
         ensure_screenshot_enabled(&app)?;
-        capture::start_capture(app.clone(), &state.sessions, &state.capture_ready).await
+        capture::start_capture(
+            app.clone(),
+            &state.sessions,
+            &state.capture_ready,
+            &state.capture_guard,
+        )
+        .await
     }
     .await;
     if let Err(error) = &result {
         if main_visible {
             app_log::error(&app, "capture", error);
             let _ = app.emit("app://toast", error);
-        } else {
-            report_capture_failure(&app, error);
         }
     }
     result
@@ -457,12 +463,7 @@ fn complete_capture(
     state: State<'_, AppState>,
     request: CompleteCaptureRequest,
 ) -> Result<CompleteCaptureResult, String> {
-    capture::complete_capture(
-        &app,
-        &state.sessions,
-        &state.capture_ready,
-        &request,
-    )
+    capture::complete_capture(&app, &state.sessions, &state.capture_ready, &request)
 }
 
 #[tauri::command]
@@ -605,42 +606,8 @@ fn permission_status() -> PermissionStatus {
     }
 }
 
-fn capture_failure_section(app: &AppHandle) -> &'static str {
-    let enabled = app
-        .state::<AppState>()
-        .config
-        .read()
-        .map(|config| config.settings.screenshot_enabled)
-        .unwrap_or(false);
-    if enabled {
-        "screenshot"
-    } else {
-        "overview"
-    }
-}
-
 pub fn report_capture_failure(app: &AppHandle, message: &str) {
     app_log::error(app, "capture", message);
-    let app_visible = ["main", "onboarding", "translate"]
-        .iter()
-        .filter_map(|label| app.get_webview_window(label))
-        .any(|window| window.is_visible().unwrap_or(false));
-    if !app_visible {
-        let _ = show_main_window(app, capture_failure_section(app));
-    }
-    if app_visible {
-        let _ = app.emit("app://toast", message);
-    }
-}
-
-pub fn show_capture_failure_window(app: &AppHandle) -> Result<(), String> {
-    show_main_window(app, capture_failure_section(app))
-}
-
-pub fn emit_capture_failure(app: &AppHandle, message: &str) {
-    app_log::error(app, "capture", message);
-    let _ = app.emit("app://toast", message);
-    let _ = app.emit("app://capture-error", message);
 }
 
 fn show_main_window(app: &AppHandle, section: &str) -> Result<(), String> {
@@ -715,10 +682,7 @@ fn show_translation_window(
             WebviewUrl::App("index.html?view=translate".into()),
         )
         .title("S-Tools 划词翻译")
-        .inner_size(
-            TRANSLATION_WINDOW_WIDTH,
-            TRANSLATION_WINDOW_DEFAULT_HEIGHT,
-        )
+        .inner_size(TRANSLATION_WINDOW_WIDTH, TRANSLATION_WINDOW_DEFAULT_HEIGHT)
         .min_inner_size(TRANSLATION_WINDOW_WIDTH, TRANSLATION_WINDOW_MIN_HEIGHT)
         .max_inner_size(TRANSLATION_WINDOW_WIDTH, TRANSLATION_WINDOW_MAX_HEIGHT)
         .resizable(false)
@@ -831,10 +795,7 @@ fn clamp_translation_window_height(height: f64) -> f64 {
     if !height.is_finite() {
         return TRANSLATION_WINDOW_DEFAULT_HEIGHT;
     }
-    height.clamp(
-        TRANSLATION_WINDOW_MIN_HEIGHT,
-        TRANSLATION_WINDOW_MAX_HEIGHT,
-    )
+    height.clamp(TRANSLATION_WINDOW_MIN_HEIGHT, TRANSLATION_WINDOW_MAX_HEIGHT)
 }
 
 #[tauri::command]
@@ -847,10 +808,7 @@ fn resize_translation_window(app: AppHandle, height: f64) -> Result<(), String> 
     let previous_size = window.outer_size().unwrap_or_default();
     let scale = window.scale_factor().unwrap_or(1.0);
     window
-        .set_size(tauri::LogicalSize::new(
-            TRANSLATION_WINDOW_WIDTH,
-            height,
-        ))
+        .set_size(tauri::LogicalSize::new(TRANSLATION_WINDOW_WIDTH, height))
         .map_err(|error| format!("调整翻译窗口高度失败：{error}"))?;
 
     let width = (TRANSLATION_WINDOW_WIDTH * scale).round();
@@ -988,11 +946,7 @@ const WINDOWS_RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const WINDOWS_AUTOSTART_NAME: &str = "S-Tools";
 
 #[cfg(all(windows, not(debug_assertions)))]
-fn windows_autostart_matches(
-    registered: &str,
-    executable: &str,
-    expected_args: &[&str],
-) -> bool {
+fn windows_autostart_matches(registered: &str, executable: &str, expected_args: &[&str]) -> bool {
     let normalize = |value: &str| {
         value
             .trim()
@@ -1069,9 +1023,7 @@ fn apply_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
                 // 旧版曾把 debug 路径写进同名启动项，因此必须校验路径和静默参数。
                 let matches = registered
                     .as_deref()
-                    .map(|value| {
-                        windows_autostart_matches(value, &executable, &[AUTOSTART_ARG])
-                    })
+                    .map(|value| windows_autostart_matches(value, &executable, &[AUTOSTART_ARG]))
                     .unwrap_or(false);
                 if !matches {
                     manager
@@ -1138,6 +1090,7 @@ fn register_shortcuts(app: &AppHandle) -> Result<(), String> {
                             handle.clone(),
                             &state.sessions,
                             &state.capture_ready,
+                            &state.capture_guard,
                         )
                         .await
                         {
@@ -1212,7 +1165,6 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(error) = ensure_screenshot_enabled(&handle) {
-                        let _ = show_main_window(&handle, "overview");
                         report_capture_failure(&handle, &error);
                         return;
                     }
@@ -1221,6 +1173,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                         handle.clone(),
                         &state.sessions,
                         &state.capture_ready,
+                        &state.capture_guard,
                     )
                     .await
                     {
@@ -1463,16 +1416,7 @@ mod tests {
             (260.0, 140.0)
         );
         assert_eq!(
-            translation_window_position(
-                -1700.0,
-                200.0,
-                440.0,
-                360.0,
-                -1920.0,
-                0.0,
-                1920.0,
-                1080.0,
-            ),
+            translation_window_position(-1700.0, 200.0, 440.0, 360.0, -1920.0, 0.0, 1920.0, 1080.0,),
             (-1700.0, 200.0)
         );
         assert_eq!(

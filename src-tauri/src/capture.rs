@@ -2,18 +2,21 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use image::ImageEncoder;
-use tauri::{window::Color, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
-use tauri::LogicalSize;
 #[cfg(target_os = "macos")]
 use tauri::LogicalPosition;
+use tauri::LogicalSize;
 #[cfg(not(target_os = "macos"))]
 use tauri::PhysicalPosition;
+use tauri::{window::Color, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use uuid::Uuid;
 use xcap::Monitor;
 
@@ -25,6 +28,38 @@ use crate::{
 
 pub const CAPTURE_WINDOW_LABEL: &str = "capture-overlay";
 const CAPTURE_READY_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// Keeps one capture workflow in flight, including the period before a session exists.
+#[derive(Default)]
+pub struct CaptureGuard {
+    active: AtomicBool,
+}
+
+impl CaptureGuard {
+    pub fn try_begin(&self) -> bool {
+        !self.active.swap(true, Ordering::AcqRel)
+    }
+
+    pub fn finish(&self) {
+        self.active.store(false, Ordering::Release);
+    }
+}
+
+pub struct CapturePermit<'a> {
+    guard: &'a CaptureGuard,
+}
+
+impl Drop for CapturePermit<'_> {
+    fn drop(&mut self) {
+        self.guard.finish();
+    }
+}
+
+impl CaptureGuard {
+    pub fn acquire(&self) -> Option<CapturePermit<'_>> {
+        self.try_begin().then_some(CapturePermit { guard: self })
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExistingCapture {
@@ -76,28 +111,28 @@ pub async fn start_capture(
     app: AppHandle,
     sessions: &Mutex<HashMap<String, CaptureSession>>,
     ready: &Arc<Mutex<HashSet<String>>>,
+    guard: &CaptureGuard,
 ) -> Result<(), String> {
     if !crate::selection::screen_recording_allowed() {
         crate::selection::request_screen_recording();
         app_log::warn(&app, "capture", "屏幕录制权限未授予");
         return Err("需要授予屏幕录制权限后才能截图".into());
     }
-    if let Some(window) = app.get_webview_window(CAPTURE_WINDOW_LABEL) {
-        // 预热窗口可能保留上一轮画面和尺寸；每次开始新截图都重建，避免旧内容串入。
-        window
-            .destroy()
-            .map_err(|error| format!("重置截图窗口失败：{error}"))?;
-    }
-    let window = ensure_capture_window(&app).map_err(|error| {
-        app_log::error(&app, "capture", &error);
-        error
-    })?;
+    let Some(_permit) = guard.acquire() else {
+        app_log::warn(&app, "capture", "截图任务正在启动或运行，忽略重复触发");
+        return Err("截图任务正在启动或运行，请稍候".into());
+    };
+    // 窗口可以复用，但旧会话必须先清干净；否则前端可能先看到上一轮截屏。
     let has_session = !sessions
         .lock()
         .map_err(|_| "截图会话锁已损坏".to_string())?
         .is_empty();
-    let visible = window.is_visible().unwrap_or(false);
+    let visible = app
+        .get_webview_window(CAPTURE_WINDOW_LABEL)
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
     if let Some(ExistingCapture::Visible) = existing_capture_state(has_session, visible) {
+        app_log::warn(&app, "capture", "已有可见截图任务，忽略本次触发");
         return Err("已有截图任务正在运行".into());
     }
     if has_session {
@@ -116,6 +151,10 @@ pub async fn start_capture(
             cleanup_session(&app, sessions, ready, &session_id);
         }
     }
+    let window = ensure_capture_window(&app).map_err(|error| {
+        app_log::error(&app, "capture", &error);
+        error
+    })?;
     cleanup_stale_temp(&app)?;
     let foreground_app_id = crate::platform::frontmost_app_id();
     app_log::info(&app, "capture", "开始抓取当前显示器");
@@ -137,8 +176,7 @@ pub async fn start_capture(
         let session = tauri::async_runtime::spawn_blocking(move || {
             let mut monitors =
                 Monitor::all().map_err(|error| format!("读取显示器失败：{error}"))?;
-            let (cursor_x, cursor_y) =
-                monitor_cursor_position(cursor.x, cursor.y, primary_scale);
+            let (cursor_x, cursor_y) = monitor_cursor_position(cursor.x, cursor.y, primary_scale);
             let monitor_index = monitors
                 .iter()
                 .position(|monitor| monitor_contains_cursor(monitor, cursor_x, cursor_y))
@@ -285,11 +323,15 @@ pub async fn start_capture(
         return Err(message);
     }
     #[cfg(windows)]
-    if let Err(error) = fit_capture_window_to_display(&window) {
-        cleanup_session(&app, sessions, ready, &session.session_id);
-        let message = format!("校准截图窗口失败：{error}");
-        app_log::error(&app, "capture", &message);
-        return Err(message);
+    if let Err(error) = fit_capture_window_to_display(
+        &window,
+        session.position_x.round() as i32,
+        session.position_y.round() as i32,
+        (session.screen_frame.width * session.backing_scale).round() as i32,
+        (session.screen_frame.height * session.backing_scale).round() as i32,
+    ) {
+        // 校准失败时保留 Tauri 已设置的窗口尺寸，避免一次 Win32 抖动打断截图。
+        app_log::warn(&app, "capture", format!("校准截图窗口失败：{error}"));
     }
     app_log::info(
         &app,
@@ -338,13 +380,19 @@ fn capture_monitor_to_png(monitor: &Monitor, path: &Path) -> Result<(), String> 
     std::fs::write(path, bytes).map_err(|error| format!("保存临时截图失败：{error}"))
 }
 
-fn fit_capture_window_to_display(window: &tauri::WebviewWindow) -> Result<(), String> {
+fn fit_capture_window_to_display(
+    window: &tauri::WebviewWindow,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
     // Windows 专属窗口边界处理放在独立模块，避免非 Windows 目标解析 hwnd 等平台 API。
     #[cfg(windows)]
-    return crate::platform::fit_capture_window_to_display(window);
+    return crate::platform::fit_capture_window_to_display(window, x, y, width, height);
     #[cfg(not(windows))]
     {
-        let _ = window;
+        let _ = (window, x, y, width, height);
         Ok(())
     }
 }
@@ -382,15 +430,11 @@ fn start_ready_watchdog(app: AppHandle, session_id: String, ready: Arc<Mutex<Has
         );
         if let Some(state) = some_state.as_ref() {
             cleanup_session(&app, &state.sessions, &state.capture_ready, &session_id);
-            let message = "截图界面未能正常显示，已自动结束本次任务，请重试";
-            let app_visible = ["main", "onboarding", "translate"]
-                .iter()
-                .filter_map(|label| app.get_webview_window(label))
-                .any(|window| window.is_visible().unwrap_or(false));
-            if !app_visible {
-                let _ = crate::show_capture_failure_window(&app);
-            }
-            crate::emit_capture_failure(&app, message);
+            app_log::error(
+                &app,
+                "capture",
+                "截图界面未能正常显示，已自动结束本次任务，请重试",
+            );
             return;
         }
     });
@@ -767,6 +811,16 @@ mod tests {
             existing_capture_state(true, false),
             Some(ExistingCapture::Hidden)
         );
+    }
+
+    #[test]
+    fn capture_guard_rejects_concurrent_starts_and_releases_on_drop() {
+        let guard = CaptureGuard::default();
+        let permit = guard.acquire().expect("first capture starts");
+        assert!(guard.acquire().is_none());
+
+        drop(permit);
+        assert!(guard.acquire().is_some());
     }
 
     #[test]

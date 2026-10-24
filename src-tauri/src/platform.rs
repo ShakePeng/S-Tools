@@ -45,55 +45,26 @@ pub fn set_capture_window_level<R: tauri::Runtime>(window: &tauri::WebviewWindow
 }
 
 #[cfg(windows)]
-pub fn windows_display_rect_for_window(window: *mut std::ffi::c_void) -> Option<(i32, i32, f64, f64)> {
-    use windows_sys::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-    };
-
-    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
-    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-    let monitor = unsafe { MonitorFromWindow(window as _, MONITOR_DEFAULTTONEAREST) };
-    if monitor.is_null() || unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
-        return None;
-    }
-    let width = info.rcMonitor.right - info.rcMonitor.left;
-    let height = info.rcMonitor.bottom - info.rcMonitor.top;
-    (width > 0 && height > 0).then_some((
-        info.rcMonitor.left,
-        info.rcMonitor.top,
-        width as f64,
-        height as f64,
-    ))
-}
-
-#[cfg(windows)]
-pub fn fit_capture_window_to_display(window: &tauri::WebviewWindow) -> Result<(), String> {
+pub fn fit_capture_window_to_display(
+    window: &tauri::WebviewWindow,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
     use tauri::{PhysicalPosition, PhysicalSize};
 
-    // 窗口刚创建时 hwnd 可能尚未就绪，先用 Tauri 的物理尺寸兜底，避免截图直接失败。
-    let monitor = window
-        .current_monitor()
-        .map_err(|error| format!("读取截图显示器失败：{error}"))?
-        .ok_or_else(|| "无法读取截图显示器".to_string())?;
-    let size = monitor.size();
-    let position = monitor.position();
-    window
-        .set_position(PhysicalPosition::new(position.x, position.y))
-        .and_then(|_| window.set_size(PhysicalSize::new(size.width, size.height)))
-        .map_err(|error| format!("设置截图窗口边界失败：{error}"))?;
-    if let Ok(hwnd) = window.hwnd() {
-        if let Some((display_x, display_y, display_width, display_height)) =
-            windows_display_rect_for_window(hwnd.0 as _)
-        {
-            windows_set_window_client_rect(
-                hwnd.0 as _,
-                display_x,
-                display_y,
-                display_width as i32,
-                display_height as i32,
-            )?;
-        }
+    if width <= 0 || height <= 0 {
+        return Err("截图显示器尺寸无效".into());
     }
+    window
+        .set_position(PhysicalPosition::new(x, y))
+        .and_then(|_| window.set_size(PhysicalSize::new(width as u32, height as u32)))
+        .map_err(|error| format!("设置截图窗口边界失败：{error}"))?;
+    let hwnd = window
+        .hwnd()
+        .map_err(|error| format!("读取截图窗口句柄失败：{error}"))?;
+    windows_set_window_client_rect(hwnd.0 as _, x, y, width, height)?;
     Ok(())
 }
 
@@ -108,9 +79,7 @@ pub fn windows_set_window_client_rect(
     use windows_sys::Win32::{
         Foundation::POINT,
         Graphics::Gdi::ClientToScreen,
-        UI::WindowsAndMessaging::{
-            GetClientRect, GetWindowRect, MoveWindow,
-        },
+        UI::WindowsAndMessaging::{GetClientRect, GetWindowRect, MoveWindow},
     };
 
     let mut outer = unsafe { std::mem::zeroed() };
@@ -130,17 +99,7 @@ pub fn windows_set_window_client_rect(
         (client.right - client.left, client.bottom - client.top),
         (x, y, width, height),
     );
-    if unsafe {
-        MoveWindow(
-            window as _,
-            move_x,
-            move_y,
-            outer_width,
-            outer_height,
-            0,
-        )
-    } == 0
-    {
+    if unsafe { MoveWindow(window as _, move_x, move_y, outer_width, outer_height, 0) } == 0 {
         return Err("移动截图窗口失败".into());
     }
     Ok(())
@@ -370,7 +329,12 @@ fn compensated_window_bounds(
     let border_y = client_origin.1 - outer.1;
     let outer_width = target.2 + (outer.2 - outer.0) - client.0;
     let outer_height = target.3 + (outer.3 - outer.1) - client.1;
-    (target.0 - border_x, target.1 - border_y, outer_width, outer_height)
+    (
+        target.0 - border_x,
+        target.1 - border_y,
+        outer_width,
+        outer_height,
+    )
 }
 
 #[cfg(test)]
