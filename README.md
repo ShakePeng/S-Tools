@@ -184,7 +184,7 @@ yarn tauri:build:windows
 - `src-tauri/Cargo.lock`
 - `CHANGELOG.md`
 
-当前发布版本为 `1.0.15`，对应标签 `v1.0.15`。推送 `v*` 标签后，GitHub Actions 会构建：
+当前发布版本为 `1.0.16`，对应标签 `v1.0.16`。推送 `v*` 标签后，GitHub Actions 会构建：
 
 - macOS ARM64 DMG
 - macOS ARM64 `.app.zip`

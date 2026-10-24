@@ -279,13 +279,28 @@ jobs:
         run: |
           set -euo pipefail
           version="${TAG_NAME#v}"
-          notes="$(awk -v version="$version" '
-            $0 ~ "^## \\[" version "\\]" { inside = 1; next }
-            inside && /^## \[/ { exit }
-            inside { print }
-          ' CHANGELOG.md)"
+          notes="$(PYTHONUTF8=1 python3 - "$version" <<'PY'
+          import sys
+          from pathlib import Path
+
+          version = sys.argv[1]
+          lines = Path("CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+          notes = []
+          inside = False
+          for line in lines:
+              if line.startswith(f"## [{version}]"):
+                  inside = True
+                  continue
+              if inside and line.startswith("## ["):
+                  break
+              if inside:
+                  notes.append(line)
+          print("\n".join(notes).strip())
+          PY
+          )"
           test -n "${notes//[[:space:]]/}"
-          # 中文必须按 UTF-8 写入，GitHub Release 与更新弹窗才不会乱码。
+          export PYTHONUTF8=1
+          export PYTHONIOENCODING=utf-8
           export LANG=C.UTF-8
           export LC_ALL=C.UTF-8
 
@@ -297,6 +312,7 @@ jobs:
           test -f "release-assets/${asset_app}"
 
           VERSION="$version" TAG_NAME="$TAG_NAME" NOTES="$notes" \
+            PYTHONUTF8=1 PYTHONIOENCODING=utf-8 \
             ASSET_WIN="$asset_win" ASSET_MAC="$asset_mac" ASSET_APP="$asset_app" \
             python3 - <<'PY'
           import hashlib
@@ -359,16 +375,21 @@ jobs:
                   handle.write("\n")
           PY
 
-          {
-            echo "## ${TAG_NAME} 更新内容"
-            echo
-            echo "$notes"
-            echo
-            echo "## 安装说明"
-            echo
-            echo "- macOS Apple Silicon：下载 DMG 安装，或使用 app.zip 免安装运行。当前版本使用固定自签名证书、未公证；首次打开可能需要在系统设置中允许。"
-            echo "- Windows x64：下载 NSIS 安装包；如出现 SmartScreen，请选择“更多信息”后继续。"
-          } > RELEASE_BODY.md
+          RELEASE_NOTES="$notes" TAG_NAME="$TAG_NAME" PYTHONUTF8=1 python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          body = (
+              f"## {os.environ['TAG_NAME']} 更新内容\n\n"
+              f"{os.environ['RELEASE_NOTES'].strip()}\n\n"
+              "## 安装说明\n\n"
+              "- macOS Apple Silicon：下载 DMG 安装，或使用 app.zip 免安装运行。"
+              "当前版本使用固定自签名证书、未公证；首次打开可能需要在系统设置中允许。\n"
+              "- Windows x64：下载 NSIS 安装包；如出现 SmartScreen，"
+              "请选择“更多信息”后继续。\n"
+          )
+          Path("RELEASE_BODY.md").write_text(body, encoding="utf-8")
+          PY
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
