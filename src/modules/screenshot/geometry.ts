@@ -38,6 +38,10 @@ export function canCompleteSelection(
   return Boolean(selection && selection.width >= minimumSide && selection.height >= minimumSide);
 }
 
+export function hasPointerMoved(start: Point, current: Point, threshold = 3): boolean {
+  return Math.hypot(current.x - start.x, current.y - start.y) >= threshold;
+}
+
 export function positionFloatingToolbar(
   selection: Rect,
   toolbar: Size,

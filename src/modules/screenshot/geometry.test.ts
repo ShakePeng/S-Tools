@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canCompleteSelection,
   clampPoint,
+  hasPointerMoved,
   mapRectToImage,
   normalizeRect,
   positionFloatingToolbar,
@@ -23,6 +24,11 @@ describe("screenshot geometry", () => {
       width: 60,
       height: 50,
     });
+  });
+
+  it("ignores click-sized jitter when deciding whether a drag started", () => {
+    expect(hasPointerMoved({ x: 20, y: 20 }, { x: 22, y: 21 })).toBe(false);
+    expect(hasPointerMoved({ x: 20, y: 20 }, { x: 23, y: 20 })).toBe(true);
   });
 
   it("maps logical CSS pixels into retina image pixels", () => {

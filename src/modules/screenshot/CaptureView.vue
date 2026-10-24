@@ -7,6 +7,7 @@ import type { CaptureAction, CaptureRect, CaptureSession } from "../../types";
 import {
   canCompleteSelection,
   clampPoint,
+  hasPointerMoved,
   normalizeRect,
   positionFloatingToolbar,
   resizeSelection,
@@ -50,6 +51,7 @@ type EditorTool =
 interface Interaction {
   kind: "new" | "selection-move" | "selection-resize" | "mark-move" | "mark-resize" | "draw";
   start: Point;
+  moved?: boolean;
   originalSelection?: CaptureRect;
   originalMark?: AnnotationMark;
   originalMarks?: AnnotationMark[];
@@ -345,7 +347,12 @@ function onPointerDown(event: PointerEvent) {
       return;
     }
 
-    beginSelection(point);
+    // 已有选区时的普通按下不立即清空；只有拖动后才移动或重选。
+    interaction.value = {
+      kind: contains(selection.value, point) ? "selection-move" : "new",
+      start: point,
+      originalSelection: { ...selection.value },
+    };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     return;
   }
@@ -375,10 +382,17 @@ function onPointerMove(event: PointerEvent) {
 
   const active = interaction.value;
   if (active.kind == "new") {
+    if (hasPointerMoved(active.start, point)) active.moved = true;
+    if (!active.moved) return;
+    if (active.originalSelection) {
+      selection.value = null;
+    }
     selection.value = normalizeRect(active.start, point);
     return;
   }
   if (active.kind == "selection-move" && active.originalSelection) {
+    if (hasPointerMoved(active.start, point)) active.moved = true;
+    if (!active.moved) return;
     const width = active.originalSelection.width;
     const height = active.originalSelection.height;
     selection.value = {
@@ -432,7 +446,9 @@ function onPointerUp(event: PointerEvent) {
   if (!active) return;
 
   if (active.kind == "new") {
-    if (!selection.value || selection.value.width < 8 || selection.value.height < 8) {
+    if (!active.moved) {
+      selection.value = active.originalSelection ?? null;
+    } else if (!selection.value || selection.value.width < 8 || selection.value.height < 8) {
       selection.value = null;
     }
     selectedIndex.value = null;
@@ -701,7 +717,7 @@ function onDoubleClick(event: MouseEvent) {
       }
     }
   }
-  void complete("copy");
+  void complete(event.ctrlKey || event.metaKey || event.shiftKey ? "save" : "copy");
 }
 
 function onContextMenu(event: MouseEvent) {
