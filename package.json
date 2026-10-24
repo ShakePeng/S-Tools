@@ -1,7 +1,7 @@
 {
   "name": "s-tools",
   "private": true,
-  "version": "1.0.13",
+  "version": "1.0.14",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,7 +21,7 @@
     "tauri:build": "tauri build",
     "tauri:build:macos": "tauri build --target aarch64-apple-darwin --bundles dmg",
     "tauri:build:windows": "tauri build --bundles nsis",
-    "icon": "tauri icon src-tauri/icons/app-source.png && node scripts/clean-mobile-icons.mjs"
+    "icon": "node scripts/generate-platform-icons.mjs && node scripts/clean-mobile-icons.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

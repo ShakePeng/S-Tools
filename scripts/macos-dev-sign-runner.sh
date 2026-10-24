@@ -26,7 +26,7 @@ bundle_executable="$bundle_contents/MacOS/s-tools"
 
 mkdir -p "$bundle_contents/MacOS" "$bundle_contents/Resources"
 cp "$script_dir/macos-dev-app/Info.plist" "$bundle_contents/Info.plist"
-cp "$repo_root/src-tauri/icons/icon.icns" "$bundle_contents/Resources/icon.icns"
+cp "$repo_root/src-tauri/icons/macos/icon.icns" "$bundle_contents/Resources/icon.icns"
 install -m 755 "$binary" "$bundle_executable"
 
 codesign --force --sign "$identity" --timestamp=none "$bundle_path"

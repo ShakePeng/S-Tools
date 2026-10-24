@@ -141,12 +141,20 @@ Windows 无需额外授权。所有翻译服务默认关闭，需要用户自行
 - 蓝紫玻璃 `candidate-b-s-glass`
 - 极简黑白 `candidate-c-s-mono`
 
-当前开发阶段暂用深色橙光方案。正式发布前由用户选型，然后执行：
+当前正式版本使用深色橙光方案。Windows 与 macOS 分别使用适配各自桌面规范的安全边距：
+
+- Windows：圆角底座占画布约 87.5%。
+- macOS：圆角底座占画布约 80.5%。
+
+两份产物均由 `src-tauri/icons/app-source.png` 等比例内缩生成。重新生成两套 ICO、ICNS 和 PNG：
 
 ```bash
-python3 scripts/generate_icons.py
 yarn icon
 ```
+
+生成结果位于 `src-tauri/icons/windows/` 和 `src-tauri/icons/macos/`，由
+`tauri.windows.conf.json`、`tauri.macos.conf.json` 分别引用。`scripts/generate_icons.py`
+仅用于重新生成候选方案，不参与发布构建。
 
 ## 构建
 
@@ -176,7 +184,7 @@ yarn tauri:build:windows
 - `src-tauri/Cargo.lock`
 - `CHANGELOG.md`
 
-当前发布版本为 `1.0.13`，对应标签 `v1.0.13`。推送 `v*` 标签后，GitHub Actions 会构建：
+当前发布版本为 `1.0.14`，对应标签 `v1.0.14`。推送 `v*` 标签后，GitHub Actions 会构建：
 
 - macOS ARM64 DMG
 - macOS ARM64 `.app.zip`
