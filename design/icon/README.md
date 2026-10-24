@@ -5,8 +5,9 @@
 - `candidate-a-s-core.svg`：深炭黑 + 白色 S + 橙色内折高光。开发阶段暂用此方案。
 - `candidate-b-s-glass.svg`：蓝紫渐变 + 玻璃质感 S。
 - `candidate-c-s-mono.svg`：米白底 + 纯黑几何 S。
+- `s-tools-mono.svg`：正式图标，近黑圆角底 + 纯白 S。
 
-正式发布前由用户选择一套，替换 `src-tauri/icons/app-source.png` 后重新运行 `yarn icon`。
+正式图标从 `s-tools-mono.svg` 的几何轮廓生成，Windows 与 macOS 共用同一母版。
 
 重新生成预览：
 
