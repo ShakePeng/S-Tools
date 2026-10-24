@@ -285,6 +285,9 @@ jobs:
             inside { print }
           ' CHANGELOG.md)"
           test -n "${notes//[[:space:]]/}"
+          # 中文必须按 UTF-8 写入，GitHub Release 与更新弹窗才不会乱码。
+          export LANG=C.UTF-8
+          export LC_ALL=C.UTF-8
 
           asset_win="S-Tools-${TAG_NAME}-windows-x64-setup.exe"
           asset_mac="S-Tools-${TAG_NAME}-macos-aarch64.dmg"
