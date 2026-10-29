@@ -3,7 +3,7 @@ use crate::models::Rect;
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn stools_frontmost_app_pid() -> u32;
-    fn stools_activate_app_pid(pid: u32);
+    fn stools_activate_app_pid(pid: u32) -> bool;
     fn stools_set_capture_window_level(window: *mut std::ffi::c_void);
     fn stools_window_rects_json(
         display_x: f64,
@@ -28,13 +28,18 @@ pub fn frontmost_app_id() -> Option<u32> {
     None
 }
 
-pub fn activate_app(pid: u32) {
+/// 激活指定进程的主窗口，返回系统是否接受了这次激活请求。
+pub fn activate_app(pid: u32) -> bool {
     #[cfg(target_os = "macos")]
-    unsafe {
-        stools_activate_app_pid(pid);
+    {
+        return unsafe { stools_activate_app_pid(pid) };
     }
     #[cfg(target_os = "windows")]
-    windows_activate_pid(pid);
+    {
+        return windows_activate_pid(pid);
+    }
+    #[allow(unreachable_code)]
+    false
 }
 
 pub fn set_capture_window_level<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
@@ -157,15 +162,17 @@ fn windows_frontmost_pid() -> Option<u32> {
 }
 
 #[cfg(target_os = "windows")]
-fn windows_activate_pid(pid: u32) {
-    use std::sync::atomic::{AtomicU32, Ordering};
+fn windows_activate_pid(pid: u32) -> bool {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetWindowThreadProcessId, IsWindowVisible, SetForegroundWindow,
     };
 
     static TARGET_PID: AtomicU32 = AtomicU32::new(0);
+    static ACTIVATED: AtomicBool = AtomicBool::new(false);
     TARGET_PID.store(pid, Ordering::Relaxed);
+    ACTIVATED.store(false, Ordering::Relaxed);
 
     unsafe extern "system" fn callback(window: HWND, _: isize) -> i32 {
         if unsafe { IsWindowVisible(window) } == 0 {
@@ -179,6 +186,7 @@ fn windows_activate_pid(pid: u32) {
             unsafe {
                 SetForegroundWindow(window);
             }
+            ACTIVATED.store(true, Ordering::Relaxed);
             return 0;
         }
         1
@@ -187,6 +195,7 @@ fn windows_activate_pid(pid: u32) {
     unsafe {
         EnumWindows(Some(callback), 0);
     }
+    ACTIVATED.load(Ordering::Relaxed)
 }
 
 #[cfg(target_os = "windows")]

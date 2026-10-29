@@ -181,25 +181,26 @@ async function copyResult(result: ProviderResult | null) {
   notice.value = "译文已复制";
 }
 
-async function close() {
+// reason 会写入日志，并决定关闭后是否把焦点还给原应用。
+async function close(reason = "button") {
   targetMenuOpen.value = false;
   if (activeRequestId.value) {
     await call("cancel_translation", { requestId: activeRequestId.value }).catch(() => undefined);
   }
-  await call("hide_translation_window").catch(() => {
+  await call("hide_translation_window", { reason }).catch(() => {
     window.close();
   });
 }
 
 async function openProviderSettings() {
   await call("open_main_window", { section: "translation" });
-  await close();
+  await close("settings");
 }
 
 async function openAccessibilitySettings() {
   try {
     await call("open_permission_settings", { kind: "accessibility" });
-    await close();
+    await close("accessibility");
   } catch (reason) {
     notice.value = reason instanceof Error ? reason.message : String(reason);
   }
@@ -244,7 +245,7 @@ function onKeydown(event: KeyboardEvent) {
       targetMenuOpen.value = false;
       return;
     }
-    close();
+    close("escape");
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() == "c" && !window.getSelection()?.toString()) {
     if (firstSuccess.value) {
@@ -349,7 +350,7 @@ onBeforeUnmount(() => {
         <button class="icon-button" title="翻译设置" @click="openProviderSettings">
           <UiIcon name="settings" :size="16" />
         </button>
-        <button class="icon-button" title="关闭" @click="close">
+        <button class="icon-button" title="关闭" @click="close('button')">
           <UiIcon name="close" :size="16" />
         </button>
       </div>

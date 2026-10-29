@@ -154,13 +154,17 @@ void stools_set_capture_window_level(void *window) {
     });
 }
 
-void stools_activate_app_pid(uint32_t pid) {
+bool stools_activate_app_pid(uint32_t pid) {
     if (pid == 0) {
-        return;
+        return false;
     }
     NSRunningApplication *application =
         [NSRunningApplication runningApplicationWithProcessIdentifier:(pid_t)pid];
-    [application activateWithOptions:0];
+    if (application == nil) {
+        return false;
+    }
+    // 返回系统是否接受了激活请求，便于日志定位「焦点没还回去」。
+    return [application activateWithOptions:0] ? true : false;
 }
 
 char *stools_window_rects_json(

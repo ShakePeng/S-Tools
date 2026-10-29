@@ -16,7 +16,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, RwLock,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use models::{
@@ -40,6 +40,14 @@ const TRANSLATION_WINDOW_WIDTH: f64 = 300.0;
 const TRANSLATION_WINDOW_DEFAULT_HEIGHT: f64 = 300.0;
 const TRANSLATION_WINDOW_MIN_HEIGHT: f64 = 220.0;
 const TRANSLATION_WINDOW_MAX_HEIGHT: f64 = 560.0;
+// macOS 显示未激活 App 的窗口时，AppKit 会先派发一次伪失焦事件；
+// 宽限期用于吞掉这次事件，避免弹框刚出现就被失焦逻辑关掉。
+const TRANSLATION_FOCUS_GRACE: Duration = Duration::from_millis(300);
+// 显示后延迟复查焦点，兜底处理 makeKeyAndOrderFront 未生效的情况。
+const TRANSLATION_FOCUS_RECHECK: Duration = Duration::from_millis(450);
+// 与截图关闭后的恢复节奏保持一致。
+const TRANSLATION_RESTORE_DELAY: Duration = Duration::from_millis(80);
+const TRANSLATION_LOG_SCOPE: &str = "translate";
 const RELEASES_URL: &str = "https://github.com/ShakePeng/S-Tools/releases";
 
 pub struct AppState {
@@ -48,6 +56,12 @@ pub struct AppState {
     capture_ready: Arc<Mutex<HashSet<String>>>,
     capture_guard: capture::CaptureGuard,
     pending: Mutex<PendingTranslation>,
+    /// 本轮弹框显示时刻，用于区分「显示瞬间的伪失焦」与用户真正的点击外部。
+    translation_shown_at: Mutex<Option<Instant>>,
+    /// 触发翻译时的前台应用 pid，关闭弹框后用它把焦点还回去。
+    translation_source_app: Mutex<Option<u32>>,
+    /// 本轮显示是否真正获得过焦点；获得过就不再补聚焦，避免抢回用户主动切走的焦点。
+    translation_focus_seen: AtomicBool,
     cancellations: Mutex<HashMap<String, CancellationToken>>,
     update_cancellation: Mutex<Option<CancellationToken>>,
     client: reqwest::Client,
@@ -78,6 +92,9 @@ impl AppState {
             capture_ready: Arc::new(Mutex::new(HashSet::new())),
             capture_guard: capture::CaptureGuard::default(),
             pending: Mutex::new(PendingTranslation::default()),
+            translation_shown_at: Mutex::new(None),
+            translation_source_app: Mutex::new(None),
+            translation_focus_seen: AtomicBool::new(false),
             cancellations: Mutex::new(HashMap::new()),
             update_cancellation: Mutex::new(None),
             client,
@@ -254,15 +271,46 @@ async fn translate(
         .map_err(|_| "取消令牌锁已损坏".to_string())?
         .insert(cancellation_key.clone(), cancellation.clone());
     let client = translation_client(&state, &provider);
+    let started = Instant::now();
+    app_log::info(
+        &app,
+        TRANSLATION_LOG_SCOPE,
+        format!(
+            "开始翻译 provider={} text_len={}",
+            provider.id,
+            request.text.chars().count()
+        ),
+    );
     let result = translate::perform_translation(client, &provider, &request, cancellation).await;
     if let Ok(mut tokens) = state.cancellations.lock() {
         tokens.remove(&cancellation_key);
+    }
+    let elapsed_ms = started.elapsed().as_millis();
+    match &result {
+        Ok(result) => app_log::info(
+            &app,
+            TRANSLATION_LOG_SCOPE,
+            format!(
+                "翻译完成 provider={} elapsed_ms={elapsed_ms} result_len={}",
+                provider.id,
+                result.translated_text.chars().count()
+            ),
+        ),
+        Err(error) => app_log::error(
+            &app,
+            TRANSLATION_LOG_SCOPE,
+            format!("翻译失败 provider={} elapsed_ms={elapsed_ms} error={error}", provider.id),
+        ),
     }
     result
 }
 
 #[tauri::command]
-fn cancel_translation(state: State<'_, AppState>, request_id: String) -> Result<(), String> {
+fn cancel_translation(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request_id: String,
+) -> Result<(), String> {
     let prefix = format!("{request_id}:");
     let mut tokens = state
         .cancellations
@@ -273,11 +321,19 @@ fn cancel_translation(state: State<'_, AppState>, request_id: String) -> Result<
         .filter(|key| key.starts_with(&prefix))
         .cloned()
         .collect::<Vec<_>>();
+    let cancelled = keys.len();
     for key in keys {
         let Some(token) = tokens.remove(&key) else {
             continue;
         };
         token.cancel();
+    }
+    if cancelled > 0 {
+        app_log::info(
+            &app,
+            TRANSLATION_LOG_SCOPE,
+            format!("取消翻译请求 count={cancelled}"),
+        );
     }
     Ok(())
 }
@@ -324,14 +380,181 @@ async fn open_translation(app: AppHandle) -> Result<(), String> {
     open_translation_workflow(app).await
 }
 
-#[tauri::command]
-fn hide_translation_window(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("translate") {
-        window
-            .hide()
-            .map_err(|error| format!("隐藏翻译窗口失败：{error}"))?;
+/// 失焦事件的处置结论。抽成纯函数，便于覆盖显示瞬间的伪失焦场景。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TranslationFocusOutcome {
+    IgnoreHidden,
+    IgnoreGrace,
+    IgnoreStale,
+    Hide,
+}
+
+fn translation_focus_outcome(
+    visible: bool,
+    shown_for: Option<Duration>,
+    still_focused: bool,
+) -> TranslationFocusOutcome {
+    if !visible {
+        return TranslationFocusOutcome::IgnoreHidden;
+    }
+    if matches!(shown_for, Some(elapsed) if elapsed < TRANSLATION_FOCUS_GRACE) {
+        return TranslationFocusOutcome::IgnoreGrace;
+    }
+    // 真正的失焦发生时窗口已经不是 key window；仍为焦点说明事件已过期。
+    if still_focused {
+        return TranslationFocusOutcome::IgnoreStale;
+    }
+    TranslationFocusOutcome::Hide
+}
+
+/// 只有用户显式关闭弹框才把焦点还给原应用；点击外部和跳转设置不抢焦点。
+fn should_restore_source_app(reason: &str) -> bool {
+    matches!(reason, "escape" | "button" | "close-requested")
+}
+
+fn handle_translation_focus_change(app: &AppHandle, focused: bool) {
+    let Some(window) = app.get_webview_window("translate") else {
+        return;
+    };
+    let visible = window.is_visible().unwrap_or(false);
+    let state = app.state::<AppState>();
+    let shown_for = state
+        .translation_shown_at
+        .lock()
+        .ok()
+        .and_then(|shown_at| *shown_at)
+        .map(|at| at.elapsed());
+
+    if focused {
+        state
+            .translation_focus_seen
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        app_log::info(
+            app,
+            TRANSLATION_LOG_SCOPE,
+            format!(
+                "翻译窗口获得焦点 visible={visible} shown_for_ms={}",
+                shown_for.map(|value| value.as_millis()).unwrap_or_default()
+            ),
+        );
+        return;
+    }
+
+    let still_focused = visible && window.is_focused().unwrap_or(false);
+    match translation_focus_outcome(visible, shown_for, still_focused) {
+        TranslationFocusOutcome::IgnoreHidden => app_log::info(
+            app,
+            TRANSLATION_LOG_SCOPE,
+            "翻译窗口失焦事件：窗口已隐藏，忽略",
+        ),
+        TranslationFocusOutcome::IgnoreGrace => app_log::info(
+            app,
+            TRANSLATION_LOG_SCOPE,
+            format!(
+                "翻译窗口失焦事件：仍在显示宽限期内，忽略 shown_for_ms={}",
+                shown_for.map(|value| value.as_millis()).unwrap_or_default()
+            ),
+        ),
+        TranslationFocusOutcome::IgnoreStale => app_log::info(
+            app,
+            TRANSLATION_LOG_SCOPE,
+            "翻译窗口失焦事件：窗口仍是焦点窗口，忽略过期事件",
+        ),
+        TranslationFocusOutcome::Hide => {
+            app_log::info(
+                app,
+                TRANSLATION_LOG_SCOPE,
+                format!(
+                    "翻译窗口失焦，准备隐藏 shown_for_ms={}",
+                    shown_for.map(|value| value.as_millis()).unwrap_or_default()
+                ),
+            );
+            let _ = hide_translation_window_inner(app, "focus-lost");
+        }
+    }
+}
+
+fn hide_translation_window_inner(app: &AppHandle, reason: &str) -> Result<(), String> {
+    let Some(window) = app.get_webview_window("translate") else {
+        app_log::warn(
+            app,
+            TRANSLATION_LOG_SCOPE,
+            format!("隐藏翻译窗口失败：窗口不存在 reason={reason}"),
+        );
+        return Ok(());
+    };
+    window
+        .hide()
+        .map_err(|error| format!("隐藏翻译窗口失败：{error}"))?;
+    let state = app.state::<AppState>();
+    if let Ok(mut shown_at) = state.translation_shown_at.lock() {
+        *shown_at = None;
+    }
+    app_log::info(
+        app,
+        TRANSLATION_LOG_SCOPE,
+        format!("翻译窗口已隐藏 reason={reason}"),
+    );
+    if should_restore_source_app(reason) {
+        restore_translation_source_app(app, reason);
+    } else if let Ok(mut source) = state.translation_source_app.lock() {
+        // 用户已切到别的应用或本应用要打开其他窗口时，不抢回焦点。
+        *source = None;
     }
     Ok(())
+}
+
+fn restore_translation_source_app(app: &AppHandle, reason: &str) {
+    let state = app.state::<AppState>();
+    let pid = state
+        .translation_source_app
+        .lock()
+        .ok()
+        .and_then(|mut source| source.take());
+    let Some(pid) = pid else {
+        app_log::info(
+            app,
+            TRANSLATION_LOG_SCOPE,
+            format!("跳过返回原应用：未记录来源应用 reason={reason}"),
+        );
+        return;
+    };
+    if pid == std::process::id() {
+        app_log::info(
+            app,
+            TRANSLATION_LOG_SCOPE,
+            format!("跳过返回原应用：来源应用是自身 pid={pid}"),
+        );
+        return;
+    }
+    app_log::info(
+        app,
+        TRANSLATION_LOG_SCOPE,
+        format!(
+            "准备返回原应用 pid={pid} delay_ms={} reason={reason}",
+            TRANSLATION_RESTORE_DELAY.as_millis()
+        ),
+    );
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(TRANSLATION_RESTORE_DELAY).await;
+        let activated = crate::platform::activate_app(pid);
+        let message = format!(
+            "返回原应用 pid={pid} result={}",
+            if activated { "ok" } else { "failed" }
+        );
+        if activated {
+            app_log::info(&handle, TRANSLATION_LOG_SCOPE, message);
+        } else {
+            app_log::warn(&handle, TRANSLATION_LOG_SCOPE, message);
+        }
+    });
+}
+
+#[tauri::command]
+fn hide_translation_window(app: AppHandle, reason: Option<String>) -> Result<(), String> {
+    let reason = reason.unwrap_or_else(|| "unknown".into());
+    hide_translation_window_inner(&app, &reason)
 }
 
 #[tauri::command]
@@ -704,6 +927,12 @@ fn show_translation_window(
         ))
         .map_err(|error| format!("重置翻译窗口尺寸失败：{error}"))?;
     position_translation_window(app, &window, anchor)?;
+    // 记录显示时刻，供失焦逻辑区分显示瞬间的伪失焦。
+    let state = app.state::<AppState>();
+    if let Ok(mut shown_at) = state.translation_shown_at.lock() {
+        *shown_at = Some(Instant::now());
+    }
+    state.translation_focus_seen.store(false, Ordering::Relaxed);
     window
         .show()
         .map_err(|error| format!("显示翻译窗口失败：{error}"))?;
@@ -717,6 +946,39 @@ fn show_translation_window(
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(80)).await;
         let _ = position_translation_window(&delayed_app, &delayed_window, anchor);
+    });
+    app_log::info(
+        app,
+        TRANSLATION_LOG_SCOPE,
+        format!(
+            "翻译窗口已显示 size={TRANSLATION_WINDOW_WIDTH}x{TRANSLATION_WINDOW_DEFAULT_HEIGHT} anchor={} focused={}",
+            anchor
+                .map(|position| format!("({}, {})", position.x, position.y))
+                .unwrap_or_else(|| "-".into()),
+            window.is_focused().unwrap_or(false)
+        ),
+    );
+    // 未激活 App 时 makeKeyAndOrderFront 可能不生效，延迟复查并补一次聚焦。
+    let recheck_app = app.clone();
+    let recheck_window = window.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(TRANSLATION_FOCUS_RECHECK).await;
+        // 已经获得过焦点说明用户可能主动切走了，不再抢回焦点。
+        if !recheck_window.is_visible().unwrap_or(false)
+            || recheck_window.is_focused().unwrap_or(false)
+            || recheck_app
+                .state::<AppState>()
+                .translation_focus_seen
+                .load(Ordering::Relaxed)
+        {
+            return;
+        }
+        let retried = recheck_window.set_focus().is_ok();
+        app_log::warn(
+            &recheck_app,
+            TRANSLATION_LOG_SCOPE,
+            format!("翻译窗口显示后未获得焦点，重试聚焦 retried={retried}"),
+        );
     });
     let _ = app.emit("translate://selection", pending.clone());
     Ok(())
@@ -878,8 +1140,34 @@ fn translation_window_position(
     (x.clamp(left, max_x), y.clamp(top, max_y))
 }
 
+/// 记录触发翻译时的前台应用，弹框关闭后用它把焦点还回去。
+fn record_translation_source_app(app: &AppHandle) {
+    let pid = crate::platform::frontmost_app_id().filter(|pid| *pid != std::process::id());
+    let state = app.state::<AppState>();
+    match state.translation_source_app.lock() {
+        Ok(mut source) => *source = pid,
+        Err(_) => {
+            app_log::warn(app, TRANSLATION_LOG_SCOPE, "来源应用锁已损坏，无法记录来源应用");
+            return;
+        }
+    }
+    match pid {
+        Some(pid) => app_log::info(
+            app,
+            TRANSLATION_LOG_SCOPE,
+            format!("记录来源应用 pid={pid}"),
+        ),
+        None => app_log::warn(
+            app,
+            TRANSLATION_LOG_SCOPE,
+            "未取到来源应用，关闭弹框后不会恢复焦点",
+        ),
+    }
+}
+
 async fn open_translation_workflow(app: AppHandle) -> Result<(), String> {
     ensure_translation_enabled(&app)?;
+    record_translation_source_app(&app);
     let anchor = app.cursor_position().ok();
     let captured = tauri::async_runtime::spawn_blocking(selection::capture_selection)
         .await
@@ -891,6 +1179,17 @@ async fn open_translation_workflow(app: AppHandle) -> Result<(), String> {
         source: captured.source,
         notice,
     };
+    // 只记录长度，不记录选中文本与译文。
+    app_log::info(
+        &app,
+        TRANSLATION_LOG_SCOPE,
+        format!(
+            "读取选区完成 source={} text_len={} notice={}",
+            pending.source,
+            pending.text.chars().count(),
+            pending.notice.as_deref().unwrap_or("-")
+        ),
+    );
     if let Some(state) = app.try_state::<AppState>() {
         *state
             .pending
@@ -1299,11 +1598,15 @@ pub fn run() {
                     || label == capture::CAPTURE_WINDOW_LABEL
                 {
                     api.prevent_close();
-                    let _ = window.hide();
+                    if label == "translate" {
+                        let _ = hide_translation_window_inner(window.app_handle(), "close-requested");
+                    } else {
+                        let _ = window.hide();
+                    }
                 }
             }
-            tauri::WindowEvent::Focused(false) if window.label() == "translate" => {
-                let _ = window.hide();
+            tauri::WindowEvent::Focused(focused) if window.label() == "translate" => {
+                handle_translation_focus_change(window.app_handle(), *focused);
             }
             _ => {}
         })
@@ -1364,6 +1667,51 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ignores_translation_blur_events_during_show_grace_period() {
+        // 显示后 100ms 内的失焦事件是 AppKit 的伪失焦，不能隐藏弹框。
+        assert_eq!(
+            translation_focus_outcome(true, Some(Duration::from_millis(100)), false),
+            TranslationFocusOutcome::IgnoreGrace
+        );
+        assert_eq!(
+            translation_focus_outcome(true, None, false),
+            TranslationFocusOutcome::Hide
+        );
+        assert_eq!(
+            translation_focus_outcome(true, Some(TRANSLATION_FOCUS_GRACE), false),
+            TranslationFocusOutcome::Hide
+        );
+    }
+
+    #[test]
+    fn ignores_translation_blur_events_for_hidden_or_still_focused_windows() {
+        assert_eq!(
+            translation_focus_outcome(false, Some(Duration::from_secs(5)), false),
+            TranslationFocusOutcome::IgnoreHidden
+        );
+        // 事件送达时窗口仍是 key window，说明这是一条过期事件。
+        assert_eq!(
+            translation_focus_outcome(true, Some(Duration::from_secs(5)), true),
+            TranslationFocusOutcome::IgnoreStale
+        );
+        assert_eq!(
+            translation_focus_outcome(true, Some(Duration::from_secs(5)), false),
+            TranslationFocusOutcome::Hide
+        );
+    }
+
+    #[test]
+    fn restores_source_app_only_for_explicit_closes() {
+        assert!(should_restore_source_app("escape"));
+        assert!(should_restore_source_app("button"));
+        assert!(should_restore_source_app("close-requested"));
+        assert!(!should_restore_source_app("focus-lost"));
+        assert!(!should_restore_source_app("settings"));
+        assert!(!should_restore_source_app("accessibility"));
+        assert!(!should_restore_source_app("unknown"));
+    }
 
     #[test]
     fn shortcut_events_use_release_for_translation_and_press_for_capture() {
