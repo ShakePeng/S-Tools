@@ -1,0 +1,25 @@
+src-tauri/src/lib.rs
+  s_f0e4fad3130f64::t_a3edc233135c80 19,43-50,59-64,95-97,274-283,288-304,309-313,324,331-337,383-502,507-559,930-935,950-982,1143-1167,1170,1182-1192,1601-1605,1608-1609,1671-1715
+src-tauri/src/platform.rs
+  s_f0e4fad3130f64::t_aee0017b416eb9 6,31-32,34-35,38-42,165-166,173,175,189,198
+src-tauri/src/platform/macos.m
+  s_f0e4fad3130f64::t_328a86e3b24778 157,159,163-167
+src/modules/translate/TranslateView.vue
+  s_f0e4fad3130f64::t_3cd8312e30cdbb 184-185,190,197,203,248,353
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b082efc43b4b0db71d9ee07f9f9678e45ca3bb99",
+  "prompts": {},
+  "sessions": {
+    "s_f0e4fad3130f64": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89483a40-332f-482c-badb-a955ec34e44a",
+        "model": "unknown"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
