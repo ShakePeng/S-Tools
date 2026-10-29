@@ -1,0 +1,31 @@
+CHANGELOG.md
+  s_f0e4fad3130f64::t_d37adc552698da 5-10
+README.md
+  s_f0e4fad3130f64::t_2884e1560e28cf 187
+package.json
+  s_f0e4fad3130f64::t_f2271338f726b5 4
+src-tauri/Cargo.lock
+  s_f0e4fad3130f64::t_b023c2b5d9e372 4412
+src-tauri/Cargo.toml
+  s_f0e4fad3130f64::t_306b65551cee27 3
+src-tauri/src/capture.rs
+  s_f0e4fad3130f64::t_3c98f9550bee7c 302-304,309-313,318-324
+src-tauri/tauri.conf.json
+  s_f0e4fad3130f64::t_fbe3e93ad79884 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "452fc7cd9a6763aa123f03152e4ec3fda7209722",
+  "prompts": {},
+  "sessions": {
+    "s_f0e4fad3130f64": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89483a40-332f-482c-badb-a955ec34e44a",
+        "model": "unknown"
+      },
+      "human_author": "ShakePeng <14865846+ShakePeng@users.noreply.github.com>"
+    }
+  }
+}
