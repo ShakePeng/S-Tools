@@ -299,21 +299,29 @@ pub async fn start_capture(
         return Err(error);
     }
 
+    // macOS 的 NSWindow.setContentSize 以左下角为锚点：若先 set_position 再 set_size，
+    // 窗口会按「上一次高度 - 本次高度」整体偏移，切到不同尺寸的显示器时必然错位。
+    // 因此必须先设定尺寸，最后再定位。
     let position_result = {
         #[cfg(target_os = "macos")]
         {
             window
-                .set_position(LogicalPosition::new(session.position_x, session.position_y))
-                .and_then(|_| window.set_size(LogicalSize::new(session.width, session.height)))
+                .set_size(LogicalSize::new(session.width, session.height))
+                .and_then(|_| {
+                    window
+                        .set_position(LogicalPosition::new(session.position_x, session.position_y))
+                })
         }
         #[cfg(not(target_os = "macos"))]
         {
             window
-                .set_position(PhysicalPosition::new(
-                    session.position_x.round() as i32,
-                    session.position_y.round() as i32,
-                ))
-                .and_then(|_| window.set_size(LogicalSize::new(session.width, session.height)))
+                .set_size(LogicalSize::new(session.width, session.height))
+                .and_then(|_| {
+                    window.set_position(PhysicalPosition::new(
+                        session.position_x.round() as i32,
+                        session.position_y.round() as i32,
+                    ))
+                })
         }
     };
     if let Err(error) = position_result {
